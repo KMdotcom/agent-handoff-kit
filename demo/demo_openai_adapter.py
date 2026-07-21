@@ -53,11 +53,15 @@ try:
         ResponseOutputMessage,
         ResponseOutputText,
     )
-except ImportError:
+except ImportError as exc:
     print(
-        "Missing dependency: openai-agents\n"
-        "  pip install 'openai-agents'\n"
-        "Then re-run this demo."
+        "Missing dependency: openai-agents (or an import it needs failed).\n"
+        f"  python: {sys.executable}\n"
+        f"  error:  {exc}\n"
+        "  Fix with the SAME interpreter:\n"
+        f"    {sys.executable} -m pip install 'openai-agents'\n"
+        "  Then re-run:\n"
+        f"    {sys.executable} demo/demo_openai_adapter.py"
     )
     raise SystemExit(2) from None
 
