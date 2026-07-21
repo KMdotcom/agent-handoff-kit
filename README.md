@@ -58,26 +58,44 @@ except Exception:
 
 `verify()` runs **before** the wrapped function. A checkpoint is marked `VERIFIED` once required keys are present — even if `to_agent` later throws. Downstream failures do **not** downgrade that status, so `recover(run_id)` still has a safe rollback point.
 
-### OpenAI Agents SDK adapter
+### OpenAI Agents SDK adapter (drop-in)
+
+Pass a dict as `Runner.run(..., context=...)`. `relayed_handoff` checkpoints and
+verifies that dict at the native SDK transfer boundary, then you resume only
+the receiving agent after a crash:
 
 ```python
+from agents import Agent, Runner
 from agent_relay import Relay
-from agent_relay.openai_adapter import wrap_handoff, resume_run
+from agent_relay.openai_adapter import relayed_handoff, resume_run, resume_with_agent
 
 relay = Relay("support.db")
-guarded = wrap_handoff(
-    relay,
-    run_id="ticket-42",
-    from_agent="triage",
-    to_agent="resolver",
-    on_handoff=my_on_handoff,
-    required_keys=["ticket_id", "summary"],
+run_id = "ticket-42"
+resolver = Agent(name="Resolver", instructions="Resolve the ticket.")
+triage = Agent(
+    name="Triage",
+    instructions="Hand off to Resolver when you have ticket_id + summary.",
+    handoffs=[
+        relayed_handoff(
+            relay,
+            run_id=run_id,
+            from_agent="triage",
+            to_agent="resolver",
+            agent=resolver,
+            required_keys=["ticket_id", "summary"],
+        )
+    ],
 )
-# pass ``guarded`` as on_handoff to the SDK
-# after a crash: resume_run(relay, "ticket-42")
+
+context = {"ticket_id": "T-1", "summary": "Double charge"}
+try:
+    await Runner.run(triage, "I was double-charged", context=context)
+except Exception:
+    recovered = resume_run(relay, run_id)          # last VERIFIED context
+    await resume_with_agent(relay, run_id, resolver)  # resolver only
 ```
 
-The adapter file is the version-sensitive seam; core stays stable when the Agents SDK moves.
+`agent_relay.openai_adapter` is the version-sensitive seam; `core` stays stable when the Agents SDK moves. Requires `pip install 'openai-agents'`.
 
 ## Demos
 
@@ -88,16 +106,15 @@ python3 demo/demo_without_relay.py   # crash; triage work lost
 python3 demo/demo_with_relay.py      # crash once, recover, finish
 ```
 
-### Real OpenAI Agents SDK demo
-
-Exercises real `Agent` / `Runner` / `function_tool` types with a flaky billing tool.
-Default mode uses a scripted `Model` (no API key). Pass `--live` for real OpenAI models.
+### Real OpenAI Agents SDK demos
 
 ```bash
 pip install -r requirements.txt
 # optional for --live: copy .env.example → .env and set OPENAI_API_KEY
-python3 demo/demo_openai_agents.py                              # offline
-python3 demo/demo_openai_agents.py --live                       # loads .env
+
+python3 demo/demo_openai_agents.py     # programmatic guarded Runner.run
+python3 demo/demo_openai_adapter.py    # native handoff via relayed_handoff + resume
+python3 demo/demo_openai_adapter.py --live
 ```
 
 `guarded_handoff` supports both sync and async callables (needed for `Runner.run`).
@@ -113,9 +130,11 @@ python3 demo/demo_openai_agents.py --live                       # loads .env
 
 ## Next steps before pitching
 
+- [x] **OpenAI adapter drop-in** — `relayed_handoff` / `resume_with_agent` + `demo/demo_openai_adapter.py`
 - [ ] **CrewAI adapter** — wrap delegation / task boundaries with the same Relay
 - [ ] **PydanticAI adapter** — wrap programmatic handoff loops (`message_history` handoffs)
 - [x] **Real (non-toy) demo** — `demo/demo_openai_agents.py` (scripted Model offline + `--live` for real OpenAI)
+- [ ] **PyPI publish** — `pip install agent-relay`
 - [ ] **Get 5–10 developers** from LangGraph / CrewAI / OpenAI Agents communities to try the MVP and give feedback on the API
 
 ## License
