@@ -129,10 +129,7 @@ def main() -> int:
     history = relay.store.history(run_id)
     print(f"  Checkpoints recorded: {len(history)}")
     for cp in history:
-        print(
-            f"    - {cp.from_agent} → {cp.to_agent}: {cp.status.value} "
-            f"({cp.checkpoint_id[:8]}…)"
-        )
+        print(f"    - {cp.from_agent} → {cp.to_agent}: {cp.status.value} ({cp.checkpoint_id[:8]}…)")
     print("=" * 60)
     return 0
 

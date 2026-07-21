@@ -42,8 +42,8 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(_ROOT / ".env")
 
 try:
-    from agents import Agent, ModelResponse, Runner, Usage
-    from agents.models.interface import Model, ModelTracing
+    from agents import Agent, ModelResponse, Usage
+    from agents.models.interface import Model
     from openai.types.responses import (
         ResponseFunctionToolCall,
         ResponseOutputMessage,
@@ -110,7 +110,17 @@ class ScriptedTriageModel(Model):
 class ScriptedResolverModel(Model):
     """Crash once, then call issue_refund and finish."""
 
-    async def get_response(self, system_instructions, input, model_settings, tools, output_schema, handoffs, tracing, **kwargs: Any) -> ModelResponse:
+    async def get_response(
+        self,
+        system_instructions,
+        input,
+        model_settings,
+        tools,
+        output_schema,
+        handoffs,
+        tracing,
+        **kwargs: Any,
+    ) -> ModelResponse:
         global _resolver_crashes_left
         if _resolver_crashes_left > 0:
             _resolver_crashes_left -= 1
@@ -139,9 +149,7 @@ class ScriptedResolverModel(Model):
             )
         return ModelResponse(
             output=[
-                _text_message(
-                    "Refund of $42.00 approved for the double charge on invoice #8821."
-                )
+                _text_message("Refund of $42.00 approved for the double charge on invoice #8821.")
             ],
             usage=Usage(),
             response_id=f"resp_{uuid.uuid4().hex[:8]}",

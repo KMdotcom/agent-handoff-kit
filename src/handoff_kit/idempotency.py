@@ -5,7 +5,8 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
-from typing import Any, Callable, Optional, Union
+from collections.abc import Callable
+from typing import Any
 
 from handoff_kit.core import Relay
 from handoff_kit.store import CheckpointStore
@@ -15,14 +16,14 @@ logger = logging.getLogger(__name__)
 KeyFn = Callable[..., str]
 
 
-def _resolve_store(relay_or_store: Union[Relay, CheckpointStore]) -> CheckpointStore:
+def _resolve_store(relay_or_store: Relay | CheckpointStore) -> CheckpointStore:
     if isinstance(relay_or_store, CheckpointStore):
         return relay_or_store
     return relay_or_store.store
 
 
 def idempotent_tool(
-    relay_or_store: Union[Relay, CheckpointStore],
+    relay_or_store: Relay | CheckpointStore,
     run_id: str,
     key_fn: KeyFn,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
@@ -36,7 +37,7 @@ def idempotent_tool(
     def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         tool_name = getattr(fn, "__name__", "tool")
 
-        def _key_and_lookup(*args: Any, **kwargs: Any) -> tuple[str, Optional[Any]]:
+        def _key_and_lookup(*args: Any, **kwargs: Any) -> tuple[str, Any | None]:
             key = key_fn(*args, **kwargs)
             if not isinstance(key, str) or not key:
                 raise TypeError("key_fn must return a non-empty str")
@@ -48,9 +49,7 @@ def idempotent_tool(
             async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
                 key, cached = _key_and_lookup(*args, **kwargs)
                 if cached is not None:
-                    logger.info(
-                        "Idempotent hit for %s key=%s run_id=%s", tool_name, key, run_id
-                    )
+                    logger.info("Idempotent hit for %s key=%s run_id=%s", tool_name, key, run_id)
                     return cached
                 result = await fn(*args, **kwargs)
                 store.save_tool_result(run_id, key, tool_name, result)
@@ -62,9 +61,7 @@ def idempotent_tool(
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             key, cached = _key_and_lookup(*args, **kwargs)
             if cached is not None:
-                logger.info(
-                    "Idempotent hit for %s key=%s run_id=%s", tool_name, key, run_id
-                )
+                logger.info("Idempotent hit for %s key=%s run_id=%s", tool_name, key, run_id)
                 return cached
             result = fn(*args, **kwargs)
             store.save_tool_result(run_id, key, tool_name, result)
@@ -76,7 +73,7 @@ def idempotent_tool(
 
 
 def make_idempotent_function_tool(
-    relay_or_store: Union[Relay, CheckpointStore],
+    relay_or_store: Relay | CheckpointStore,
     run_id: str,
     fn: Callable[..., Any],
     key_fn: KeyFn,

@@ -70,9 +70,7 @@ class OpenAIAdapterTests(unittest.TestCase):
             context={"ticket_id": "T-1", "summary": "s"},
             turn_input=[{"type": "message", "content": "hello"}],
         )
-        env = build_envelope_from_run_context(
-            ctx, from_agent="triage", to_agent="resolver"
-        )
+        env = build_envelope_from_run_context(ctx, from_agent="triage", to_agent="resolver")
         self.assertIn("state", env)
         self.assertEqual(env["state"]["ticket_id"], "T-1")
         self.assertEqual(len(env["messages"]), 1)
@@ -169,9 +167,7 @@ class DurableRunnerTests(unittest.TestCase):
                 from_agent="triage",
                 to_agent="resolver",
             )
-            cp = relay.checkpoint(
-                "cold-1", "triage", "resolver", env, ["ticket_id", "summary"]
-            )
+            cp = relay.checkpoint("cold-1", "triage", "resolver", env, ["ticket_id", "summary"])
             relay.verify(cp)
             relay.store.set_run_status("cold-1", "open")
 
