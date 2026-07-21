@@ -8,9 +8,11 @@ By default this uses a *scripted* Model so you can verify recovery without an
 API key while still exercising real ``Agent`` / ``Runner`` / ``function_tool``
 types from ``openai-agents``.
 
-Live mode (real OpenAI models)::
+Live mode (real OpenAI models). Put your key in a repo-root ``.env``
+(see ``.env.example``), or export it in the shell::
 
-    export OPENAI_API_KEY=sk-...
+    # .env at repo root:
+    # OPENAI_API_KEY=sk-...
     python3 demo/demo_openai_agents.py --live
 
 Offline / CI mode (default)::
@@ -33,6 +35,26 @@ from typing import Any
 _ROOT = Path(__file__).resolve().parents[1]
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
+
+
+def _load_dotenv(path: Path) -> None:
+    """Minimal .env loader (stdlib-only). Does not override existing env vars."""
+    if not path.is_file():
+        return
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in {'"', "'"}:
+            value = value[1:-1]
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv(_ROOT / ".env")
 
 try:
     from agents import Agent, ModelResponse, Runner, Usage, function_tool
@@ -387,7 +409,11 @@ def main() -> int:
     args = parser.parse_args()
 
     if args.live and not os.environ.get("OPENAI_API_KEY"):
-        print("ERROR: --live requires OPENAI_API_KEY to be set.")
+        print(
+            "ERROR: --live requires OPENAI_API_KEY.\n"
+            "  Add it to a .env file at the repo root (see .env.example),\n"
+            "  or: export OPENAI_API_KEY=sk-..."
+        )
         return 2
 
     # Quiet noisy SDK tracing in demos unless the user opted in.

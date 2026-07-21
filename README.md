@@ -95,8 +95,9 @@ Default mode uses a scripted `Model` (no API key). Pass `--live` for real OpenAI
 
 ```bash
 pip install -r requirements.txt
+# optional for --live: copy .env.example → .env and set OPENAI_API_KEY
 python3 demo/demo_openai_agents.py                              # offline
-OPENAI_API_KEY=sk-... python3 demo/demo_openai_agents.py --live # live
+python3 demo/demo_openai_agents.py --live                       # loads .env
 ```
 
 `guarded_handoff` supports both sync and async callables (needed for `Runner.run`).

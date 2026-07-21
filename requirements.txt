@@ -3,5 +3,6 @@
 # Optional — real OpenAI Agents SDK demo:
 #   pip install -r requirements.txt
 #   python3 demo/demo_openai_agents.py
-#   OPENAI_API_KEY=... python3 demo/demo_openai_agents.py --live
+#   # for --live: copy .env.example → .env and set OPENAI_API_KEY
+#   python3 demo/demo_openai_agents.py --live
 openai-agents>=0.2.0
