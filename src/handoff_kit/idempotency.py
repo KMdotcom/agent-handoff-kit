@@ -1,4 +1,4 @@
-"""Idempotent tool helpers so resumed agents do not double-apply side effects."""
+"""Cache tool results so a resumed agent does not double-apply side effects."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import inspect
 import logging
 from typing import Any, Callable, Optional, Union
 
-from agent_relay.core import Relay
-from agent_relay.store import CheckpointStore
+from handoff_kit.core import Relay
+from handoff_kit.store import CheckpointStore
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def make_idempotent_function_tool(
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "make_idempotent_function_tool requires openai-agents. "
-            "Install with: pip install 'openai-agents'"
+            "Install with: pip install 'handoff-kit[openai]'"
         ) from exc
 
     wrapped = idempotent_tool(relay_or_store, run_id, key_fn)(fn)

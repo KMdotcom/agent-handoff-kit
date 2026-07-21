@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
-from agent_relay import (
+from handoff_kit import (
     HandoffStatus,
     HandoffVerificationError,
     Relay,
@@ -16,8 +16,8 @@ from agent_relay import (
     checkpoint_state,
     make_handoff_envelope,
 )
-from agent_relay.idempotency import idempotent_tool
-from agent_relay.openai_adapter import (
+from handoff_kit.idempotency import idempotent_tool
+from handoff_kit.openai_adapter import (
     DurableRunner,
     RunAlreadyCompleted,
     build_envelope_from_run_context,
@@ -184,7 +184,7 @@ class DurableRunnerTests(unittest.TestCase):
                 calls.append(getattr(agent, "name", "?"))
                 return SimpleNamespace(final_output="resumed")
 
-            import agent_relay.openai_adapter as oa
+            import handoff_kit.openai_adapter as oa
 
             real_resume = oa.resume_with_agent
 

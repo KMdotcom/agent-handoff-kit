@@ -1,7 +1,6 @@
-"""SQLite-backed checkpoint, run-meta, and tool-invocation persistence.
+"""SQLite storage for checkpoints, run completion, and idempotent tool results.
 
-All SQL lives in this module so a future Postgres/Redis backend only requires
-swapping this file (or implementing the same method surface).
+Keep SQL here so a later Postgres/Redis backend only has to replace this module.
 """
 
 from __future__ import annotations
@@ -12,7 +11,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from agent_relay.models import Checkpoint, HandoffStatus
+from handoff_kit.models import Checkpoint, HandoffStatus
 
 Row = tuple  # matches Checkpoint.to_row()
 
@@ -23,7 +22,7 @@ class CheckpointStore:
     Interface is intentionally small so alternative backends can mirror it.
     """
 
-    def __init__(self, db_path: Union[str, Path] = "agent_relay.db") -> None:
+    def __init__(self, db_path: Union[str, Path] = "handoff_kit.db") -> None:
         self.db_path = str(db_path)
         self._init_db()
 

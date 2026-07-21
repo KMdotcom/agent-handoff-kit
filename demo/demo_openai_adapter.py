@@ -18,8 +18,10 @@ from pathlib import Path
 from typing import Any
 
 _ROOT = Path(__file__).resolve().parents[1]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+_SRC = _ROOT / "src"
+for _p in (_SRC, _ROOT):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
 
 def _load_dotenv(path: Path) -> None:
@@ -59,10 +61,10 @@ except ImportError as exc:
     )
     raise SystemExit(2) from None
 
-from agent_relay import Relay
-from agent_relay.idempotency import make_idempotent_function_tool
-from agent_relay.models import checkpoint_messages, checkpoint_state
-from agent_relay.openai_adapter import (
+from handoff_kit import Relay
+from handoff_kit.idempotency import make_idempotent_function_tool
+from handoff_kit.models import checkpoint_messages, checkpoint_state
+from handoff_kit.openai_adapter import (
     DurableRunner,
     RunAlreadyCompleted,
     relayed_handoff,
