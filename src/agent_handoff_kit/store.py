@@ -10,7 +10,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from handoff_kit.models import Checkpoint, HandoffStatus, dumps_safe, loads_field
+from agent_handoff_kit.models import Checkpoint, HandoffStatus, dumps_safe, loads_field
 
 
 class CheckpointStore:
@@ -19,7 +19,7 @@ class CheckpointStore:
     Interface is intentionally small so alternative backends can mirror it.
     """
 
-    def __init__(self, db_path: str | Path = "handoff_kit.db") -> None:
+    def __init__(self, db_path: str | Path = "agent_handoff_kit.db") -> None:
         self.db_path = str(db_path)
         self._init_db()
 

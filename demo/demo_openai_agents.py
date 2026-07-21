@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real OpenAI Agents SDK demo with handoff-kit recovery.
+"""Real OpenAI Agents SDK demo with agent-handoff-kit recovery.
 
 Pipeline: triage agent → (guarded handoff) → resolver agent (flaky billing tool)
 → closer agent.
@@ -72,7 +72,7 @@ except ImportError:
     )
     raise SystemExit(2) from None
 
-from handoff_kit import Relay
+from agent_handoff_kit import Relay
 
 DB_PATH = _ROOT / "demo" / "demo_openai_agents.db"
 
@@ -82,7 +82,7 @@ _billing_failed_once = False
 # function_call_output strings — Runner.run does NOT raise. Live models may
 # also retry the tool inside the *same* run after a soft error. We sticky-latch
 # the first fatal tool outage for the current handoff attempt and re-raise
-# after Runner.run returns, so handoff-kit recovery still runs (a later
+# after Runner.run returns, so agent-handoff-kit recovery still runs (a later
 # in-run retry must not clear the latch).
 _fatal_tool_error: Exception | None = None
 
@@ -289,7 +289,7 @@ def build_agents(*, live: bool) -> tuple[Agent, Agent, Agent]:
 async def run_pipeline(*, live: bool) -> int:
     print("=" * 60)
     mode = "LIVE (OpenAI API)" if live else "OFFLINE (scripted Model)"
-    print(f"DEMO: OpenAI Agents SDK + handoff-kit [{mode}]")
+    print(f"DEMO: OpenAI Agents SDK + agent-handoff-kit [{mode}]")
     print("=" * 60)
 
     if DB_PATH.exists():
@@ -381,7 +381,7 @@ async def run_pipeline(*, live: bool) -> int:
     context = await handoff_to_closer(context)
 
     print("\n" + "=" * 60)
-    print("SUCCESS: real Agents SDK pipeline completed with handoff-kit.")
+    print("SUCCESS: real Agents SDK pipeline completed with agent-handoff-kit.")
     print(f"  Final context: {context}")
     for cp in relay.store.history(run_id):
         print(f"  - {cp.from_agent} → {cp.to_agent}: {cp.status.value} ({cp.checkpoint_id[:8]}…)")

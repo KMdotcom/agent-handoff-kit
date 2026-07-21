@@ -1,11 +1,11 @@
-"""OpenAI Agents SDK adapter for handoff-kit.
+"""OpenAI Agents SDK adapter for agent-handoff-kit.
 
-When the Agents SDK API shifts, change this file — not ``handoff_kit.core``.
+When the Agents SDK API shifts, change this file — not ``agent_handoff_kit.core``.
 
 Quick use::
 
-    from handoff_kit import Relay
-    from handoff_kit.openai_adapter import DurableRunner, relayed_handoff
+    from agent_handoff_kit import Relay
+    from agent_handoff_kit.openai_adapter import DurableRunner, relayed_handoff
 
     relay = Relay("support.db")
     to_resolver = relayed_handoff(
@@ -28,8 +28,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from handoff_kit.core import Relay
-from handoff_kit.models import (
+from agent_handoff_kit.core import Relay
+from agent_handoff_kit.models import (
     Checkpoint,
     HandoffStatus,
     checkpoint_messages,
@@ -173,7 +173,7 @@ def relayed_handoff(
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "relayed_handoff requires openai-agents. "
-            "Install with: pip install 'handoff-kit[openai]'"
+            "Install with: pip install 'agent-handoff-kit[openai]'"
         ) from exc
 
     wrapped = wrap_on_handoff(
@@ -273,7 +273,7 @@ async def resume_with_agent(
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "resume_with_agent requires openai-agents. "
-            "Install with: pip install 'handoff-kit[openai]'"
+            "Install with: pip install 'agent-handoff-kit[openai]'"
         ) from exc
 
     cp = relay.recover(run_id)
@@ -338,7 +338,7 @@ class DurableRunner:
         except ImportError as exc:  # pragma: no cover
             raise ImportError(
                 "DurableRunner requires openai-agents. "
-                "Install with: pip install 'handoff-kit[openai]'"
+                "Install with: pip install 'agent-handoff-kit[openai]'"
             ) from exc
 
         agents = agents or {}

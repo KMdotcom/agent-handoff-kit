@@ -1,4 +1,4 @@
-# handoff-kit
+# agent-handoff-kit
 
 **Alpha (0.1.0).** OpenAI Agents first. CrewAI / PydanticAI adapters are not in this
 release — do not wait on them. APIs may still move; pin the version in production
@@ -7,7 +7,7 @@ experiments.
 Checkpoint multi-agent handoffs. Verify the receiver got what it needs. Resume after
 a crash — without standing up Temporal.
 
-LangGraph already has strong native checkpointing; this is **not** that. handoff-kit
+LangGraph already has strong native checkpointing; this is **not** that. agent-handoff-kit
 is a thin recovery layer at the handoff boundary for OpenAI Agents (and plain Python
 callables). Prefer LangGraph or Temporal when you need a full workflow engine,
 durable timers, or graph-native state.
@@ -25,13 +25,13 @@ policies, or manage tool sandboxes.
 ## Install
 
 ```bash
-python -m pip install handoff-kit
-python -m pip install "handoff-kit[openai]"   # OpenAI Agents SDK adapter
+python -m pip install agent-handoff-kit
+python -m pip install "agent-handoff-kit[openai]"   # OpenAI Agents SDK adapter
 ```
 
 Python **3.10–3.13**. Use the **same interpreter** for install and run
 (`python -m pip …` then that same `python`). Mixing Homebrew / system Pythons is a
-common footgun (`ModuleNotFoundError: handoff_kit`).
+common footgun (`ModuleNotFoundError: agent_handoff_kit`).
 
 Dev / editable:
 
@@ -59,7 +59,7 @@ python -m pip install -e ".[dev,openai]"
 ## Core quickstart
 
 ```python
-from handoff_kit import Relay
+from agent_handoff_kit import Relay
 
 relay = Relay("run.db")
 
@@ -81,8 +81,8 @@ Manual flow: `checkpoint` → `verify` → run receiver → on crash `recover(ru
 
 ```python
 from agents import Agent
-from handoff_kit import Relay
-from handoff_kit.openai_adapter import DurableRunner, relayed_handoff
+from agent_handoff_kit import Relay
+from agent_handoff_kit.openai_adapter import DurableRunner, relayed_handoff
 
 relay = Relay("support.db")
 run_id = "ticket-42"
@@ -117,7 +117,7 @@ once. Completed `run_id`s refuse a second run (`RunAlreadyCompleted`).
 Side-effecting tools should not double-apply on resume:
 
 ```python
-from handoff_kit.idempotency import idempotent_tool
+from agent_handoff_kit.idempotency import idempotent_tool
 
 @idempotent_tool(relay, run_id, key_fn=lambda ticket_id: f"refund:{ticket_id}")
 def issue_refund(ticket_id: str) -> str:
@@ -175,8 +175,8 @@ python -m twine upload --repository testpypi dist/*
 python -m venv /tmp/hk-test && source /tmp/hk-test/bin/activate
 python -m pip install --index-url https://test.pypi.org/simple/ \
   --extra-index-url https://pypi.org/simple \
-  handoff-kit
-python -c "from handoff_kit import Relay; print(Relay)"
+  agent-handoff-kit
+python -c "from agent_handoff_kit import Relay; print(Relay)"
 ```
 
 (`--extra-index-url` keeps optional deps like `openai-agents` resolvable from real
@@ -193,16 +193,16 @@ python -m twine upload dist/*
 - [ ] `.gitignore` covers `.env`, `*.db`, `dist/`, `build/`, egg-info
 - [ ] SQLite `timeout=30.0`
 - [ ] Safe JSON serialize for non-JSON payloads
-- [ ] Clean build; sdist lists all `handoff_kit` modules
+- [ ] Clean build; sdist lists all `agent_handoff_kit` modules
 - [ ] `twine check dist/*` passes
-- [ ] Local wheel: `from handoff_kit import Relay`
+- [ ] Local wheel: `from agent_handoff_kit import Relay`
 - [ ] TestPyPI upload + fresh-venv install + import
 - [ ] Real PyPI: `twine upload dist/*`
 
 Verify package contents after a clean build:
 
 ```bash
-tar -tzf dist/handoff_kit-*.tar.gz | grep 'handoff_kit/.*\.py'
+tar -tzf dist/agent_handoff_kit-*.tar.gz | grep 'agent_handoff_kit/.*\.py'
 # must list __init__.py, core.py, models.py, store.py, idempotency.py, openai_adapter.py
 ```
 

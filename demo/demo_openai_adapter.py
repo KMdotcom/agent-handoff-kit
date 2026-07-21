@@ -61,10 +61,10 @@ except ImportError as exc:
     )
     raise SystemExit(2) from None
 
-from handoff_kit import Relay
-from handoff_kit.idempotency import make_idempotent_function_tool
-from handoff_kit.models import checkpoint_messages, checkpoint_state
-from handoff_kit.openai_adapter import (
+from agent_handoff_kit import Relay
+from agent_handoff_kit.idempotency import make_idempotent_function_tool
+from agent_handoff_kit.models import checkpoint_messages, checkpoint_state
+from agent_handoff_kit.openai_adapter import (
     DurableRunner,
     RunAlreadyCompleted,
     relayed_handoff,

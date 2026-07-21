@@ -6,14 +6,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from handoff_kit import (
+from agent_handoff_kit import (
     HandoffStatus,
     HandoffVerificationError,
     Relay,
     checkpoint_state,
     make_handoff_envelope,
 )
-from handoff_kit.models import Checkpoint, dumps_safe, json_sanitize, loads_field
+from agent_handoff_kit.models import Checkpoint, dumps_safe, json_sanitize, loads_field
 
 
 class _FakeModel:

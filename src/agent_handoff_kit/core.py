@@ -12,8 +12,8 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from handoff_kit.models import Checkpoint, HandoffStatus, checkpoint_state
-from handoff_kit.store import CheckpointStore
+from agent_handoff_kit.models import Checkpoint, HandoffStatus, checkpoint_state
+from agent_handoff_kit.store import CheckpointStore
 
 logger = logging.getLogger(__name__)
 

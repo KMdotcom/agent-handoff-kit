@@ -3,13 +3,13 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "handoff-kit"
+name = "agent-handoff-kit"
 version = "0.1.0"
 description = "Lightweight recovery layer for multi-agent handoffs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "handoff-kit contributors" }]
+authors = [{ name = "agent-handoff-kit contributors" }]
 keywords = [
   "agents",
   "multi-agent",
@@ -46,7 +46,7 @@ Issues = "https://github.com/KMdotcom/handoff-kit/issues"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["handoff_kit*"]
+include = ["agent_handoff_kit*"]
 
 [tool.ruff]
 line-length = 100
