@@ -1,3 +1,8 @@
-# agent-relay MVP is stdlib-only.
-# No third-party packages are required to use the core library or run the demos.
-# Optional later: openai-agents (for the OpenAI adapter in a live Agents SDK app).
+# Core library + plain demos: stdlib only (no pins required).
+#
+# Optional — real OpenAI Agents SDK demo:
+#   pip install -r requirements.txt
+#   python3 demo/demo_openai_agents.py
+#   # for --live: copy .env.example → .env and set OPENAI_API_KEY
+#   python3 demo/demo_openai_agents.py --live
+openai-agents>=0.2.0

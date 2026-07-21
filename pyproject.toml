@@ -13,7 +13,8 @@ authors = [{ name = "agent-relay contributors" }]
 dependencies = []
 
 [project.optional-dependencies]
-openai = ["openai-agents"]
+openai = ["openai-agents>=0.2.0"]
+demo = ["openai-agents>=0.2.0"]
 
 [tool.setuptools.packages.find]
 include = ["agent_relay*"]

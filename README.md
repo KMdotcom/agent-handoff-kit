@@ -81,12 +81,26 @@ The adapter file is the version-sensitive seam; core stays stable when the Agent
 
 ## Demos
 
-No third-party deps. From the repo root:
+Plain demos (stdlib only) from the repo root:
 
 ```bash
-python demo/demo_without_relay.py   # crash; triage work lost
-python demo/demo_with_relay.py      # crash once, recover, finish
+python3 demo/demo_without_relay.py   # crash; triage work lost
+python3 demo/demo_with_relay.py      # crash once, recover, finish
 ```
+
+### Real OpenAI Agents SDK demo
+
+Exercises real `Agent` / `Runner` / `function_tool` types with a flaky billing tool.
+Default mode uses a scripted `Model` (no API key). Pass `--live` for real OpenAI models.
+
+```bash
+pip install -r requirements.txt
+# optional for --live: copy .env.example → .env and set OPENAI_API_KEY
+python3 demo/demo_openai_agents.py                              # offline
+python3 demo/demo_openai_agents.py --live                       # loads .env
+```
+
+`guarded_handoff` supports both sync and async callables (needed for `Runner.run`).
 
 ## Public API
 
@@ -101,7 +115,7 @@ python demo/demo_with_relay.py      # crash once, recover, finish
 
 - [ ] **CrewAI adapter** — wrap delegation / task boundaries with the same Relay
 - [ ] **PydanticAI adapter** — wrap programmatic handoff loops (`message_history` handoffs)
-- [ ] **Real (non-toy) demo** — a live multi-agent workflow on OpenAI Agents SDK, not plain functions
+- [x] **Real (non-toy) demo** — `demo/demo_openai_agents.py` (scripted Model offline + `--live` for real OpenAI)
 - [ ] **Get 5–10 developers** from LangGraph / CrewAI / OpenAI Agents communities to try the MVP and give feedback on the API
 
 ## License
