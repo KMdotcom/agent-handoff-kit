@@ -8,7 +8,7 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
-from agent_relay.models import Checkpoint, HandoffStatus
+from agent_relay.models import Checkpoint, HandoffStatus, checkpoint_state
 from agent_relay.store import CheckpointStore
 
 logger = logging.getLogger(__name__)
@@ -69,12 +69,13 @@ class Relay:
         return cp
 
     def verify(self, checkpoint: Checkpoint) -> Checkpoint:
-        """Pre-flight: ensure ``context`` contains every ``required_keys`` entry.
+        """Pre-flight: ensure required keys exist on app state before the risky step.
 
-        On success, marks VERIFIED (usable as recovery point even if the next
-        step crashes). On missing keys, marks FAILED and raises.
+        For envelope checkpoints, keys are checked on ``context["state"]``.
+        Legacy flat context dicts are checked directly.
         """
-        missing = [k for k in checkpoint.required_keys if k not in checkpoint.context]
+        state = checkpoint_state(checkpoint)
+        missing = [k for k in checkpoint.required_keys if k not in state]
         if missing:
             msg = (
                 f"Handoff from {checkpoint.from_agent!r} to {checkpoint.to_agent!r} "

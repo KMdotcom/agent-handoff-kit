@@ -1,8 +1,6 @@
-# Core library + plain demos: stdlib only (no pins required).
+# Core library is stdlib-only.
 #
-# Optional — real OpenAI Agents SDK demo:
-#   pip install -r requirements.txt
-#   python3 demo/demo_openai_agents.py
-#   # for --live: copy .env.example → .env and set OPENAI_API_KEY
-#   python3 demo/demo_openai_agents.py --live
+# For OpenAI demos / adapter:
+#   python -m pip install -e ".[openai]"
+#   # or:
 openai-agents>=0.2.0
