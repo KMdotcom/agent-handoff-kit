@@ -37,9 +37,9 @@ demo = ["openai-agents>=0.2.0"]
 dev = ["build", "twine", "ruff", "pytest"]
 
 [project.urls]
-Homepage = "https://github.com/KMdotcom/handoff-kit"
-Repository = "https://github.com/KMdotcom/handoff-kit"
-Issues = "https://github.com/KMdotcom/handoff-kit/issues"
+Homepage = "https://github.com/KMdotcom/agent-handoff-kit"
+Repository = "https://github.com/KMdotcom/agent-handoff-kit"
+Issues = "https://github.com/KMdotcom/agent-handoff-kit/issues"
 
 [tool.setuptools.package-dir]
 "" = "src"

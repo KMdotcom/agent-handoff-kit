@@ -2,7 +2,7 @@
 
 **Alpha (0.1.0).** PyPI / import: `agent-handoff-kit` / `agent_handoff_kit`
 (PyPI rejected the shorter `handoff-kit` as too similar to an existing project).
-GitHub repo remains [KMdotcom/handoff-kit](https://github.com/KMdotcom/handoff-kit).
+GitHub repo: [KMdotcom/agent-handoff-kit](https://github.com/KMdotcom/agent-handoff-kit).
 
 OpenAI Agents first. CrewAI / PydanticAI adapters are not in this release — do not
 wait on them. APIs may still move; pin the version in production experiments.
