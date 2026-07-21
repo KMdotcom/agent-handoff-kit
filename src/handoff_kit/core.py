@@ -1,4 +1,7 @@
-"""Framework-agnostic handoff checkpoint / verify / recover engine."""
+"""Checkpoint / verify / recover for agent-to-agent handoffs.
+
+Framework-agnostic on purpose. OpenAI wiring lives in ``openai_adapter``.
+"""
 
 from __future__ import annotations
 
@@ -8,33 +11,32 @@ import logging
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
 
-from agent_relay.models import Checkpoint, HandoffStatus, checkpoint_state
-from agent_relay.store import CheckpointStore
+from handoff_kit.models import Checkpoint, HandoffStatus, checkpoint_state
+from handoff_kit.store import CheckpointStore
 
 logger = logging.getLogger(__name__)
 
 
 class HandoffVerificationError(Exception):
-    """Raised when a handoff context is missing keys the receiving agent requires."""
+    """Raised when the handoff is missing keys the next agent needs."""
 
 
 class Relay:
-    """Lightweight recovery layer for multi-agent handoffs.
+    """Save a clean handoff snapshot, then resume from it if something blows up.
 
-    Typical flow:
-      1. ``checkpoint`` — persist incoming context as PENDING
-      2. ``verify`` — pre-flight check; mark VERIFIED *before* the risky step
+    Flow:
+      1. ``checkpoint`` — write PENDING
+      2. ``verify`` — mark VERIFIED *before* the risky step runs
       3. run the receiving agent / wrapped function
-      4. on crash, ``recover`` returns the last VERIFIED checkpoint
+      4. on crash, ``recover`` returns that last VERIFIED snapshot
 
-    Why verify *before* the function runs
-    ------------------------------------
+    Why verify before the function runs
+    -----------------------------------
     If we only marked VERIFIED after a successful handoff body, the first
-    crash inside ``to_agent`` would leave no rollback point (status still
-    PENDING or never written). Pre-flight verification means: "the receiving
-    agent was given everything it needs." That fact remains true even if the
-    agent's own work later throws — so the checkpoint stays a safe recovery
-    point and we do **not** downgrade VERIFIED on downstream failure.
+    crash inside ``to_agent`` would leave nothing to roll back to. Pre-flight
+    verify means: "the receiver was given what it needs." That stays true even
+    if its own work later throws — so we never downgrade VERIFIED on a
+    downstream failure.
     """
 
     def __init__(
@@ -56,7 +58,7 @@ class Relay:
         context: dict[str, Any],
         required_keys: list[str],
     ) -> Checkpoint:
-        """Create and persist a PENDING checkpoint for this handoff."""
+        """Persist a PENDING checkpoint for this handoff."""
         cp = Checkpoint(
             run_id=run_id,
             from_agent=from_agent,
@@ -69,10 +71,9 @@ class Relay:
         return cp
 
     def verify(self, checkpoint: Checkpoint) -> Checkpoint:
-        """Pre-flight: ensure required keys exist on app state before the risky step.
+        """Pre-flight: required keys must exist on app state before the risky step.
 
-        For envelope checkpoints, keys are checked on ``context["state"]``.
-        Legacy flat context dicts are checked directly.
+        Envelope checkpoints check ``context["state"]``. Flat dicts are checked as-is.
         """
         state = checkpoint_state(checkpoint)
         missing = [k for k in checkpoint.required_keys if k not in state]
@@ -96,7 +97,7 @@ class Relay:
         return checkpoint
 
     def recover(self, run_id: str) -> Optional[Checkpoint]:
-        """Return the last VERIFIED checkpoint for ``run_id``, or None."""
+        """Last VERIFIED checkpoint for ``run_id``, or None."""
         return self.store.last_good_checkpoint(run_id)
 
     def guarded_handoff(
@@ -106,14 +107,10 @@ class Relay:
         to_agent: str,
         required_keys: list[str],
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        """Decorator factory: checkpoint → verify (pre-flight) → call ``fn``.
+        """Decorator: checkpoint → verify (pre-flight) → call ``fn(context)``.
 
-        ``fn`` must accept a ``context`` dict (as the first positional arg or
-        as a ``context=`` keyword) and return an updated context dict.
-
-        On exception after a successful verify: log and re-raise without
-        changing the checkpoint's VERIFIED status — it remains the rollback
-        point for ``recover``.
+        On failure after verify: log and re-raise. Do not touch VERIFIED status —
+        that checkpoint is still the rollback point.
         """
 
         def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
@@ -144,16 +141,15 @@ class Relay:
                     context=context,
                     required_keys=required_keys,
                 )
-                # VERIFIED is set here — *before* fn runs — so a crash inside
-                # fn still leaves a recoverable checkpoint.
+                # VERIFIED before fn runs — a crash inside fn is still recoverable.
                 self.verify(cp)
                 return cp
 
             def _log_body_failure(cp: Checkpoint) -> None:
                 logger.exception(
                     "Handoff body failed after VERIFIED checkpoint %s "
-                    "(run_id=%s, %s -> %s). Checkpoint status is NOT "
-                    "downgraded; call recover(%r) to resume.",
+                    "(run_id=%s, %s -> %s). Status stays VERIFIED; "
+                    "call recover(%r) to resume.",
                     cp.checkpoint_id,
                     run_id,
                     from_agent,

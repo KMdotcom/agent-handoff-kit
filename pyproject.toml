@@ -3,13 +3,13 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "agent-relay"
+name = "handoff-kit"
 version = "0.1.0"
 description = "Lightweight recovery layer for multi-agent handoffs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "agent-relay contributors" }]
+authors = [{ name = "handoff-kit contributors" }]
 keywords = [
   "agents",
   "multi-agent",
@@ -41,5 +41,9 @@ Homepage = "https://github.com/KMdotcom/AIenv"
 Repository = "https://github.com/KMdotcom/AIenv"
 Issues = "https://github.com/KMdotcom/AIenv/issues"
 
+[tool.setuptools.package-dir]
+"" = "src"
+
 [tool.setuptools.packages.find]
-include = ["agent_relay*"]
+where = ["src"]
+include = ["handoff_kit*"]

@@ -1,6 +1,4 @@
-# Core library is stdlib-only.
-#
-# For OpenAI demos / adapter:
+# Core is stdlib-only.
+# Optional OpenAI demos:
 #   python -m pip install -e ".[openai]"
-#   # or:
 openai-agents>=0.2.0

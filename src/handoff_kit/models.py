@@ -1,4 +1,4 @@
-"""Checkpoint data model, status enum, and handoff envelope helpers."""
+"""Checkpoint shapes and the handoff envelope helpers."""
 
 from __future__ import annotations
 
@@ -11,12 +11,12 @@ from typing import Any, Optional, Union
 
 
 class HandoffStatus(str, Enum):
-    """Lifecycle of a handoff checkpoint.
+    """Where a handoff checkpoint sits in its lifecycle.
 
-    PENDING   — saved, not yet verified
-    VERIFIED  — receiving agent has all required keys (safe rollback point)
-    FAILED    — pre-flight verification failed (missing required keys)
-    RECOVERED — reserved for callers that mark a restored checkpoint as used
+    PENDING   — written, not verified yet
+    VERIFIED  — required keys present (safe rollback point)
+    FAILED    — pre-flight failed (missing keys)
+    RECOVERED — marked after a successful resume
     """
 
     PENDING = "PENDING"
@@ -27,7 +27,7 @@ class HandoffStatus(str, Enum):
 
 @dataclass
 class Checkpoint:
-    """A point-in-time snapshot of state at an agent-to-agent handoff boundary."""
+    """Snapshot of state at an agent-to-agent handoff boundary."""
 
     run_id: str
     from_agent: str
@@ -40,7 +40,7 @@ class Checkpoint:
     error: Optional[str] = None
 
     def to_row(self) -> tuple:
-        """Serialize to a SQLite-friendly tuple (JSON-encode dict/list fields)."""
+        """SQLite row (JSON-encode dict/list fields)."""
         return (
             self.checkpoint_id,
             self.run_id,
@@ -55,7 +55,7 @@ class Checkpoint:
 
     @classmethod
     def from_row(cls, row: tuple) -> Checkpoint:
-        """Rebuild a Checkpoint from a DB row produced by ``to_row``."""
+        """Rebuild from ``to_row`` output."""
         (
             checkpoint_id,
             run_id,
@@ -81,7 +81,7 @@ class Checkpoint:
 
 
 def is_handoff_envelope(payload: dict[str, Any]) -> bool:
-    """True when ``payload`` uses the MVP envelope shape (state/messages/meta)."""
+    """True if payload looks like ``{state, messages, meta}``."""
     return (
         isinstance(payload, dict)
         and "state" in payload
@@ -99,7 +99,7 @@ def make_handoff_envelope(
     messages: Optional[list[Any]] = None,
     sdk: str = "openai-agents",
 ) -> dict[str, Any]:
-    """Build the structured checkpoint payload stored in ``Checkpoint.context``."""
+    """Build the structured blob we store in ``Checkpoint.context``."""
     return {
         "state": dict(state),
         "messages": list(messages or []),
@@ -112,7 +112,7 @@ def make_handoff_envelope(
 
 
 def checkpoint_state(checkpoint: Union[Checkpoint, dict[str, Any]]) -> dict[str, Any]:
-    """App state dict from a checkpoint (envelope ``state`` or legacy flat context)."""
+    """App state from an envelope, or the flat dict for older checkpoints."""
     payload = checkpoint.context if isinstance(checkpoint, Checkpoint) else checkpoint
     if is_handoff_envelope(payload):
         return dict(payload["state"])
@@ -120,7 +120,7 @@ def checkpoint_state(checkpoint: Union[Checkpoint, dict[str, Any]]) -> dict[str,
 
 
 def checkpoint_messages(checkpoint: Union[Checkpoint, dict[str, Any]]) -> list[Any]:
-    """Message list from an envelope checkpoint; empty for legacy flat payloads."""
+    """Messages from an envelope; empty list for flat legacy payloads."""
     payload = checkpoint.context if isinstance(checkpoint, Checkpoint) else checkpoint
     if is_handoff_envelope(payload):
         msgs = payload.get("messages") or []

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Demo: same 3-agent support pipeline WITH agent-relay.
+"""Demo: same 3-agent support pipeline WITH handoff-kit.
 
 The resolver fails exactly once (deterministic flag), then succeeds on retry.
 After the crash we recover the last VERIFIED checkpoint and retry ONLY the
@@ -13,10 +13,12 @@ from pathlib import Path
 
 # Allow `python demo/demo_with_relay.py` with zero install steps.
 _ROOT = Path(__file__).resolve().parents[1]
-if str(_ROOT) not in sys.path:
-    sys.path.insert(0, str(_ROOT))
+_SRC = _ROOT / "src"
+for _p in (_SRC, _ROOT):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
-from agent_relay import Relay
+from handoff_kit import Relay
 
 DB_PATH = _ROOT / "demo" / "demo_with_relay.db"
 
@@ -60,7 +62,7 @@ def closer_agent(context: dict) -> dict:
 
 def main() -> int:
     print("=" * 60)
-    print("DEMO: support pipeline WITH agent-relay")
+    print("DEMO: support pipeline WITH handoff-kit")
     print("=" * 60)
 
     # Repeatable: wipe any previous demo DB.
