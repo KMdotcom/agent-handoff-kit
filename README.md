@@ -13,111 +13,111 @@ agent-relay targets stacks whose own docs still push you toward bolting on a hea
 - **OpenAI Agents SDK** — first-class `handoff`, but no crash recovery at handoff boundaries
 - **CrewAI / PydanticAI** — adapters planned; core is framework-agnostic today
 
-This is the thin, purpose-built alternative: checkpoint → verify → recover around handoffs, not a full workflow engine.
+## Python version support
+
+Supports **Python 3.10–3.13**. There is nothing special about 3.11.
+
+If installs seem missing, you almost certainly mixed interpreters (e.g. Homebrew `python3` → 3.14 while packages landed in 3.11). Always install and run with the **same** binary:
+
+```bash
+python3.12 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+python -m pip install -U pip
+python -m pip install -e ".[openai]"
+python demo/demo_openai_adapter.py
+```
+
+Python **3.14** may not work until `openai-agents` supports it — prefer 3.12 for demos.
 
 ## Install
 
-MVP is **stdlib-only** (SQLite via `sqlite3`).
+Core library is **stdlib-only** (SQLite). OpenAI integration is an optional extra.
 
 ```bash
-# from the repo root
-pip install -e .
-# or just put the repo on PYTHONPATH / run demos as shown below
+pip install agent-relay              # core
+pip install "agent-relay[openai]"    # + openai-agents
+# from this repo:
+pip install -e ".[openai]"
 ```
 
-## Quickstart
+### Publish to PyPI (maintainers)
 
-```python
-from agent_relay import Relay
-
-relay = Relay("my_run.db")
-run_id = "ticket-42"
-
-@relay.guarded_handoff(
-    run_id=run_id,
-    from_agent="triage",
-    to_agent="resolver",
-    required_keys=["ticket_id", "summary"],
-)
-def resolve(context: dict) -> dict:
-    # your receiving-agent logic
-    context = dict(context)
-    context["resolution_notes"] = "…"
-    return context
-
-context = {"ticket_id": "T-1", "summary": "Double charge"}
-try:
-    context = resolve(context)
-except Exception:
-    recovered = relay.recover(run_id)
-    if recovered:
-        context = resolve(recovered.context)  # retry this step only
+```bash
+python -m pip install build twine
+python -m build
+twine upload dist/*
 ```
 
-### Pre-flight verification (the subtle bit)
-
-`verify()` runs **before** the wrapped function. A checkpoint is marked `VERIFIED` once required keys are present — even if `to_agent` later throws. Downstream failures do **not** downgrade that status, so `recover(run_id)` still has a safe rollback point.
-
-### OpenAI Agents SDK adapter (drop-in)
-
-Pass a dict as `Runner.run(..., context=...)`. `relayed_handoff` checkpoints and
-verifies that dict at the native SDK transfer boundary, then you resume only
-the receiving agent after a crash:
+## Quickstart (OpenAI Agents — DurableRunner)
 
 ```python
 from agents import Agent, Runner
 from agent_relay import Relay
-from agent_relay.openai_adapter import relayed_handoff, resume_run, resume_with_agent
+from agent_relay.idempotency import make_idempotent_function_tool
+from agent_relay.openai_adapter import DurableRunner, relayed_handoff
 
 relay = Relay("support.db")
 run_id = "ticket-42"
-resolver = Agent(name="Resolver", instructions="Resolve the ticket.")
+
+def _refund(ticket_id: str) -> str:
+    return f"refunded {ticket_id}"
+
+refund = make_idempotent_function_tool(
+    relay, run_id, _refund, key_fn=lambda ticket_id: f"refund:{ticket_id}"
+)
+
+resolver = Agent(name="Resolver", instructions="Resolve it.", tools=[refund])
 triage = Agent(
     name="Triage",
-    instructions="Hand off to Resolver when you have ticket_id + summary.",
+    instructions="Hand off to Resolver.",
     handoffs=[
         relayed_handoff(
-            relay,
-            run_id=run_id,
-            from_agent="triage",
-            to_agent="resolver",
-            agent=resolver,
+            relay, run_id, "triage", "resolver", resolver,
             required_keys=["ticket_id", "summary"],
         )
     ],
 )
 
-context = {"ticket_id": "T-1", "summary": "Double charge"}
-try:
-    await Runner.run(triage, "I was double-charged", context=context)
-except Exception:
-    recovered = resume_run(relay, run_id)          # last VERIFIED context
-    await resume_with_agent(relay, run_id, resolver)  # resolver only
+await DurableRunner.run(
+    relay,
+    run_id,
+    triage,
+    "I was double-charged",
+    context={"ticket_id": "T-1", "summary": "Double charge"},
+    agents={"triage": triage, "resolver": resolver},
+)
+# On crash after handoff: DurableRunner auto-resumes resolver once.
+# Re-running the same run_id after success raises RunAlreadyCompleted.
 ```
 
-`agent_relay.openai_adapter` is the version-sensitive seam; `core` stays stable when the Agents SDK moves. Requires `pip install 'openai-agents'`.
+Checkpoints store a **full-context envelope**: `{state, messages, meta}`. `required_keys` apply to `state`. Helpers: `checkpoint_state`, `checkpoint_messages`.
+
+### Framework-agnostic core
+
+```python
+from agent_relay import Relay
+
+relay = Relay("my_run.db")
+
+@relay.guarded_handoff(
+    run_id="ticket-42",
+    from_agent="triage",
+    to_agent="resolver",
+    required_keys=["ticket_id", "summary"],
+)
+def resolve(context: dict) -> dict:
+    return {**context, "resolution_notes": "…"}
+```
 
 ## Demos
 
-Plain demos (stdlib only) from the repo root:
-
 ```bash
-python3 demo/demo_without_relay.py   # crash; triage work lost
-python3 demo/demo_with_relay.py      # crash once, recover, finish
+python demo/demo_without_relay.py      # crash; work lost
+python demo/demo_with_relay.py         # plain guarded_handoff recovery
+python demo/demo_openai_agents.py      # programmatic Runner.run + flaky tool
+python demo/demo_openai_adapter.py     # DurableRunner + idempotent refund (offline)
+python demo/demo_openai_adapter.py --live
 ```
-
-### Real OpenAI Agents SDK demos
-
-```bash
-pip install -r requirements.txt
-# optional for --live: copy .env.example → .env and set OPENAI_API_KEY
-
-python3 demo/demo_openai_agents.py     # programmatic guarded Runner.run
-python3 demo/demo_openai_adapter.py    # native handoff via relayed_handoff + resume
-python3 demo/demo_openai_adapter.py --live
-```
-
-`guarded_handoff` supports both sync and async callables (needed for `Runner.run`).
 
 ## Public API
 
@@ -125,17 +125,20 @@ python3 demo/demo_openai_adapter.py --live
 |--------|------|
 | `Relay` | checkpoint / verify / recover / `guarded_handoff` |
 | `Checkpoint` / `HandoffStatus` | data model |
-| `CheckpointStore` | SQLite persistence (swap later for Postgres/Redis) |
-| `HandoffVerificationError` | missing `required_keys` |
+| `checkpoint_state` / `checkpoint_messages` | envelope helpers |
+| `CheckpointStore` | SQLite persistence (+ run_meta, tool_invocations) |
+| `idempotent_tool` / `make_idempotent_function_tool` | side-effect dedup |
+| `relayed_handoff` / `DurableRunner` | OpenAI Agents adapter |
 
 ## Next steps before pitching
 
-- [x] **OpenAI adapter drop-in** — `relayed_handoff` / `resume_with_agent` + `demo/demo_openai_adapter.py`
-- [ ] **CrewAI adapter** — wrap delegation / task boundaries with the same Relay
-- [ ] **PydanticAI adapter** — wrap programmatic handoff loops (`message_history` handoffs)
-- [x] **Real (non-toy) demo** — `demo/demo_openai_agents.py` (scripted Model offline + `--live` for real OpenAI)
-- [ ] **PyPI publish** — `pip install agent-relay`
-- [ ] **Get 5–10 developers** from LangGraph / CrewAI / OpenAI Agents communities to try the MVP and give feedback on the API
+- [x] OpenAI adapter drop-in (`relayed_handoff`, `DurableRunner`)
+- [x] Full-context envelope + automatic recovery + tool idempotency
+- [x] PyPI-ready packaging metadata
+- [ ] CrewAI adapter
+- [ ] PydanticAI adapter
+- [ ] Actually publish `agent-relay` to PyPI
+- [ ] Get 5–10 developers to try it
 
 ## License
 

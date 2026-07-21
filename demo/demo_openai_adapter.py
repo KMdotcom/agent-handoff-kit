@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""BYO-style demo: native OpenAI Agents ``handoff`` via ``relayed_handoff``.
-
-Shows the copy-paste MVP path:
-  1. ``relayed_handoff(...)`` checkpoints at the SDK transfer boundary
-  2. Receiving agent crashes mid-run (simulated ConnectionError)
-  3. ``resume_run`` / ``resume_with_agent`` continue from VERIFIED context
+"""DurableRunner demo: full-context handoff, auto-resume, idempotent refund tool.
 
 Offline by default (scripted Model). Live::
 
@@ -15,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import os
 import sys
 import uuid
@@ -46,26 +40,37 @@ def _load_dotenv(path: Path) -> None:
 _load_dotenv(_ROOT / ".env")
 
 try:
-    from agents import Agent, ModelResponse, Runner, Usage, function_tool
+    from agents import Agent, ModelResponse, Runner, Usage
     from agents.models.interface import Model, ModelTracing
     from openai.types.responses import (
         ResponseFunctionToolCall,
         ResponseOutputMessage,
         ResponseOutputText,
     )
-except ImportError:
+except ImportError as exc:
     print(
-        "Missing dependency: openai-agents\n"
-        "  pip install 'openai-agents'\n"
-        "Then re-run this demo."
+        "Missing dependency: openai-agents (or an import it needs failed).\n"
+        f"  python: {sys.executable}\n"
+        f"  error:  {exc}\n"
+        "  Fix with the SAME interpreter:\n"
+        f"    {sys.executable} -m pip install 'openai-agents'\n"
+        "  Then re-run:\n"
+        f"    {sys.executable} demo/demo_openai_adapter.py"
     )
     raise SystemExit(2) from None
 
 from agent_relay import Relay
-from agent_relay.openai_adapter import relayed_handoff, resume_run, resume_with_agent
+from agent_relay.idempotency import make_idempotent_function_tool
+from agent_relay.models import checkpoint_messages, checkpoint_state
+from agent_relay.openai_adapter import (
+    DurableRunner,
+    RunAlreadyCompleted,
+    relayed_handoff,
+)
 
 DB_PATH = _ROOT / "demo" / "demo_openai_adapter.db"
 _resolver_crashes_left = 1
+_refund_calls = 0
 
 
 def _text_message(text: str) -> ResponseOutputMessage:
@@ -79,8 +84,6 @@ def _text_message(text: str) -> ResponseOutputMessage:
 
 
 class ScriptedTriageModel(Model):
-    """Emit a native handoff tool call to transfer_to_resolver."""
-
     async def get_response(self, *args: Any, **kwargs: Any) -> ModelResponse:
         call = ResponseFunctionToolCall(
             type="function_call",
@@ -103,13 +106,35 @@ class ScriptedTriageModel(Model):
 
 
 class ScriptedResolverModel(Model):
-    """Crash once (simulates worker death), then return a final answer."""
+    """Crash once, then call issue_refund and finish."""
 
-    async def get_response(self, *args: Any, **kwargs: Any) -> ModelResponse:
+    async def get_response(self, system_instructions, input, model_settings, tools, output_schema, handoffs, tracing, **kwargs: Any) -> ModelResponse:
         global _resolver_crashes_left
         if _resolver_crashes_left > 0:
             _resolver_crashes_left -= 1
             raise ConnectionError("simulated worker crash mid-resolver")
+
+        # After resume: invoke refund tool once, then (on next turn) finalize.
+        has_tool_result = False
+        if not isinstance(input, str):
+            for item in input:
+                kind = item.get("type") if isinstance(item, dict) else getattr(item, "type", None)
+                if kind in {"function_call_output", "tool_result"}:
+                    has_tool_result = True
+                    break
+        if not has_tool_result:
+            return ModelResponse(
+                output=[
+                    ResponseFunctionToolCall(
+                        type="function_call",
+                        call_id=f"call_{uuid.uuid4().hex[:8]}",
+                        name="issue_refund",
+                        arguments='{"ticket_id":"T-2001","amount":42.0}',
+                    )
+                ],
+                usage=Usage(),
+                response_id=f"resp_{uuid.uuid4().hex[:8]}",
+            )
         return ModelResponse(
             output=[
                 _text_message(
@@ -128,28 +153,37 @@ class ScriptedResolverModel(Model):
         return _gen()
 
 
-@function_tool
-def note_resolution(notes: str) -> str:
-    """Record a short resolution note (live-mode helper tool)."""
-    return f"Noted: {notes}"
+def build_agents(*, live: bool, relay: Relay, run_id: str) -> tuple[Agent, Agent, Any]:
+    global _refund_calls
 
+    def issue_refund(ticket_id: str, amount: float = 42.0) -> str:
+        global _refund_calls
+        _refund_calls += 1
+        print(f"[tool:issue_refund] call=#{_refund_calls} ticket={ticket_id} amount={amount}")
+        return f"Refund of ${amount:.2f} issued for {ticket_id}."
 
-def build_agents(*, live: bool, relay: Relay, run_id: str) -> tuple[Agent, Agent]:
+    refund_tool = make_idempotent_function_tool(
+        relay,
+        run_id,
+        issue_refund,
+        key_fn=lambda ticket_id, amount=42.0: f"refund:{ticket_id}",
+    )
+
     if live:
         resolver = Agent(
             name="Resolver",
             instructions=(
-                "Resolve the billing ticket using the context you were given. "
-                "Reply with one short paragraph confirming the refund."
+                "Resolve billing tickets. Call issue_refund with the ticket_id, "
+                "then confirm in one short paragraph."
             ),
-            tools=[note_resolution],
+            tools=[refund_tool],
             model="gpt-4.1-mini",
         )
         triage = Agent(
             name="Triage",
             instructions=(
-                "You are triage. Always hand off to the Resolver agent immediately "
-                "using the transfer tool. Do not solve the ticket yourself."
+                "Always hand off to the Resolver agent immediately using the "
+                "transfer tool. Do not solve the ticket yourself."
             ),
             handoffs=[
                 relayed_handoff(
@@ -163,11 +197,12 @@ def build_agents(*, live: bool, relay: Relay, run_id: str) -> tuple[Agent, Agent
             ],
             model="gpt-4.1-mini",
         )
-        return triage, resolver
+        return triage, resolver, refund_tool
 
     resolver = Agent(
         name="Resolver",
-        instructions="Resolve the ticket.",
+        instructions="Resolve via issue_refund.",
+        tools=[refund_tool],
         model=ScriptedResolverModel(),
     )
     triage = Agent(
@@ -185,27 +220,28 @@ def build_agents(*, live: bool, relay: Relay, run_id: str) -> tuple[Agent, Agent
         ],
         model=ScriptedTriageModel(),
     )
-    return triage, resolver
+    return triage, resolver, refund_tool
 
 
 async def run_pipeline(*, live: bool) -> int:
     print("=" * 60)
     mode = "LIVE (OpenAI API)" if live else "OFFLINE (scripted Model)"
-    print(f"DEMO: relayed_handoff drop-in [{mode}]")
+    print(f"DEMO: DurableRunner + full context + idempotency [{mode}]")
     print("=" * 60)
 
     if DB_PATH.exists():
         DB_PATH.unlink()
         print(f"[setup] Removed existing {DB_PATH.name}")
 
-    global _resolver_crashes_left
+    global _resolver_crashes_left, _refund_calls
     _resolver_crashes_left = 0 if live else 1
+    _refund_calls = 0
 
     relay = Relay(DB_PATH)
     run_id = "adapter-demo-T-2001"
-    triage, resolver = build_agents(live=live, relay=relay, run_id=run_id)
+    triage, resolver, _refund_tool = build_agents(live=live, relay=relay, run_id=run_id)
+    agents = {"triage": triage, "resolver": resolver}
 
-    # App-owned state dict — available as ctx.context inside on_handoff.
     context: dict[str, Any] = {
         "ticket_id": "T-2001",
         "category": "billing",
@@ -214,68 +250,50 @@ async def run_pipeline(*, live: bool) -> int:
     }
     print(f"[app] Starting context: {context}")
 
-    print("\n→ Runner.run(triage) with relayed_handoff → resolver…")
-    try:
-        result = await Runner.run(
-            triage,
-            "I was double-charged on invoice #8821.",
-            context=context,
-        )
-        if live:
-            # Live models may succeed without our crash injection; still show
-            # that a VERIFIED handoff checkpoint was written.
-            print(f"[live] Run finished: {result.final_output!s}")
-            history = relay.store.history(run_id)
-            if not history:
-                print("ERROR: expected a handoff checkpoint; none found.")
-                return 1
-            print("\nCheckpoints:")
-            for cp in history:
-                print(
-                    f"  - {cp.from_agent} → {cp.to_agent}: {cp.status.value} "
-                    f"({cp.checkpoint_id[:8]}…)"
-                )
-            print(
-                "\nTIP: offline mode injects a mid-resolver crash to exercise "
-                "resume_with_agent. Re-run without --live to see recovery."
-            )
-            return 0
-        print("ERROR: expected resolver to crash offline; it did not.")
-        return 1
-    except ConnectionError as exc:
-        print("\n" + "!" * 60)
-        print("CRASH: resolver worker failed after handoff.")
-        print(f"  Exception: {exc.__class__.__name__}: {exc}")
+    print("\n→ DurableRunner.run(triage) …")
+    result = await DurableRunner.run(
+        relay,
+        run_id,
+        triage,
+        "I was double-charged on invoice #8821.",
+        context=context,
+        agents=agents,
+    )
+    print(f"[done] Final output: {result.final_output}")
 
-        recovered = resume_run(relay, run_id)
-        if recovered is None:
-            print("ERROR: resume_run() returned None — handoff was not checkpointed.")
-            return 1
-
-        print("\nRECOVERY: resume_run() returned last VERIFIED context.")
-        print(f"  context: {recovered}")
-        print("  Calling resume_with_agent(resolver) only (not full triage)…")
-        print("!" * 60 + "\n")
-
-        result = await resume_with_agent(
-            relay,
-            run_id,
-            resolver,
-            prompt=lambda ctx: (
-                "Finish resolving this ticket.\n"
-                f"Context JSON: {json.dumps(ctx)}"
-            ),
-            mark_recovered=True,
-        )
-        print(f"[resolver] Resumed output: {result.final_output}")
-
-    print("\n" + "=" * 60)
-    print("SUCCESS: relayed_handoff + resume_with_agent completed.")
-    for cp in relay.store.history(run_id):
+    history = relay.store.history(run_id)
+    print("\nCheckpoints:")
+    for cp in history:
+        state = checkpoint_state(cp)
+        msgs = checkpoint_messages(cp)
         print(
             f"  - {cp.from_agent} → {cp.to_agent}: {cp.status.value} "
-            f"({cp.checkpoint_id[:8]}…)"
+            f"({cp.checkpoint_id[:8]}…) state_keys={sorted(state)} "
+            f"messages={len(msgs)}"
         )
+
+    print(f"\n[idempotency] issue_refund raw executions: {_refund_calls}")
+    if not live and _refund_calls != 1:
+        print("ERROR: expected exactly one refund execution after auto-resume.")
+        return 1
+
+    # Re-run same run_id should refuse (completed marker).
+    try:
+        await DurableRunner.run(
+            relay,
+            run_id,
+            triage,
+            "retry?",
+            context=context,
+            agents=agents,
+        )
+        print("ERROR: expected RunAlreadyCompleted on second DurableRunner.run")
+        return 1
+    except RunAlreadyCompleted as exc:
+        print(f"[guard] Second run blocked: {exc}")
+
+    print("\n" + "=" * 60)
+    print("SUCCESS: DurableRunner auto-recovered; run marked completed.")
     print("=" * 60)
     return 0
 
@@ -289,9 +307,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     if args.live and not os.environ.get("OPENAI_API_KEY"):
-        print(
-            "ERROR: --live requires OPENAI_API_KEY in the environment or .env"
-        )
+        print("ERROR: --live requires OPENAI_API_KEY in the environment or .env")
         return 2
     os.environ.setdefault("OPENAI_AGENTS_DISABLE_TRACING", "1")
     return asyncio.run(run_pipeline(live=args.live))

@@ -1,4 +1,4 @@
-"""Checkpoint data model and status enum."""
+"""Checkpoint data model, status enum, and handoff envelope helpers."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import time
 import uuid
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Optional
+from typing import Any, Optional, Union
 
 
 class HandoffStatus(str, Enum):
@@ -78,3 +78,51 @@ class Checkpoint:
             status=HandoffStatus(status),
             error=error,
         )
+
+
+def is_handoff_envelope(payload: dict[str, Any]) -> bool:
+    """True when ``payload`` uses the MVP envelope shape (state/messages/meta)."""
+    return (
+        isinstance(payload, dict)
+        and "state" in payload
+        and "meta" in payload
+        and isinstance(payload.get("state"), dict)
+        and isinstance(payload.get("meta"), dict)
+    )
+
+
+def make_handoff_envelope(
+    state: dict[str, Any],
+    *,
+    from_agent: str,
+    to_agent: str,
+    messages: Optional[list[Any]] = None,
+    sdk: str = "openai-agents",
+) -> dict[str, Any]:
+    """Build the structured checkpoint payload stored in ``Checkpoint.context``."""
+    return {
+        "state": dict(state),
+        "messages": list(messages or []),
+        "meta": {
+            "from_agent": from_agent,
+            "to_agent": to_agent,
+            "sdk": sdk,
+        },
+    }
+
+
+def checkpoint_state(checkpoint: Union[Checkpoint, dict[str, Any]]) -> dict[str, Any]:
+    """App state dict from a checkpoint (envelope ``state`` or legacy flat context)."""
+    payload = checkpoint.context if isinstance(checkpoint, Checkpoint) else checkpoint
+    if is_handoff_envelope(payload):
+        return dict(payload["state"])
+    return dict(payload)
+
+
+def checkpoint_messages(checkpoint: Union[Checkpoint, dict[str, Any]]) -> list[Any]:
+    """Message list from an envelope checkpoint; empty for legacy flat payloads."""
+    payload = checkpoint.context if isinstance(checkpoint, Checkpoint) else checkpoint
+    if is_handoff_envelope(payload):
+        msgs = payload.get("messages") or []
+        return list(msgs) if isinstance(msgs, list) else []
+    return []
