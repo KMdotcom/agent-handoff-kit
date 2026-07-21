@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import functools
+import inspect
 import logging
 from pathlib import Path
 from typing import Any, Callable, Optional, Union
@@ -115,8 +116,10 @@ class Relay:
         """
 
         def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
-            @functools.wraps(fn)
-            def wrapper(*args: Any, **kwargs: Any) -> Any:
+            def _extract_context(
+                args: tuple[Any, ...], kwargs: dict[str, Any]
+            ) -> tuple[dict[str, Any], tuple[Any, ...], dict[str, Any]]:
+                kwargs = dict(kwargs)
                 if args:
                     context = args[0]
                     rest_args = args[1:]
@@ -128,10 +131,11 @@ class Relay:
                         f"{fn.__name__} must be called with a context dict "
                         "as the first argument or context= keyword"
                     )
-
                 if not isinstance(context, dict):
                     raise TypeError("context must be a dict")
+                return context, rest_args, kwargs
 
+            def _checkpoint_and_verify(context: dict[str, Any]) -> Checkpoint:
                 cp = self.checkpoint(
                     run_id=run_id,
                     from_agent=from_agent,
@@ -142,20 +146,42 @@ class Relay:
                 # VERIFIED is set here — *before* fn runs — so a crash inside
                 # fn still leaves a recoverable checkpoint.
                 self.verify(cp)
+                return cp
 
+            def _log_body_failure(cp: Checkpoint) -> None:
+                logger.exception(
+                    "Handoff body failed after VERIFIED checkpoint %s "
+                    "(run_id=%s, %s -> %s). Checkpoint status is NOT "
+                    "downgraded; call recover(%r) to resume.",
+                    cp.checkpoint_id,
+                    run_id,
+                    from_agent,
+                    to_agent,
+                    run_id,
+                )
+
+            if inspect.iscoroutinefunction(fn):
+
+                @functools.wraps(fn)
+                async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                    context, rest_args, kwargs = _extract_context(args, kwargs)
+                    cp = _checkpoint_and_verify(context)
+                    try:
+                        return await fn(context, *rest_args, **kwargs)
+                    except Exception:
+                        _log_body_failure(cp)
+                        raise
+
+                return async_wrapper
+
+            @functools.wraps(fn)
+            def wrapper(*args: Any, **kwargs: Any) -> Any:
+                context, rest_args, kwargs = _extract_context(args, kwargs)
+                cp = _checkpoint_and_verify(context)
                 try:
                     return fn(context, *rest_args, **kwargs)
                 except Exception:
-                    logger.exception(
-                        "Handoff body failed after VERIFIED checkpoint %s "
-                        "(run_id=%s, %s -> %s). Checkpoint status is NOT "
-                        "downgraded; call recover(%r) to resume.",
-                        cp.checkpoint_id,
-                        run_id,
-                        from_agent,
-                        to_agent,
-                        run_id,
-                    )
+                    _log_body_failure(cp)
                     raise
 
             return wrapper
