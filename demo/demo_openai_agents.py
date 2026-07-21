@@ -79,22 +79,23 @@ DB_PATH = _ROOT / "demo" / "demo_openai_agents.db"
 # Deterministic flaky tool flag (not randomness).
 _billing_failed_once = False
 # The Agents SDK catches tool exceptions and feeds them back as
-# function_call_output strings — Runner.run does NOT raise. We record the
-# hard failure here and re-raise in the handoff body so agent-relay recovery
-# is exercised the way a production wrapper would treat a fatal tool outage.
-_last_tool_error: Exception | None = None
+# function_call_output strings — Runner.run does NOT raise. Live models may
+# also retry the tool inside the *same* run after a soft error. We sticky-latch
+# the first fatal tool outage for the current handoff attempt and re-raise
+# after Runner.run returns, so agent-relay recovery still runs (a later
+# in-run retry must not clear the latch).
+_fatal_tool_error: Exception | None = None
 
 
 @function_tool
 def billing_lookup(ticket_id: str) -> str:
     """Look up billing details for a support ticket. May time out transiently."""
-    global _billing_failed_once, _last_tool_error
+    global _billing_failed_once, _fatal_tool_error
     print(f"[tool:billing_lookup] ticket_id={ticket_id}")
     if not _billing_failed_once:
         _billing_failed_once = True
-        _last_tool_error = TimeoutError("billing API timed out after 30s")
-        raise _last_tool_error
-    _last_tool_error = None
+        _fatal_tool_error = TimeoutError("billing API timed out after 30s")
+        raise _fatal_tool_error
     return (
         f"Ticket {ticket_id}: double charge confirmed on invoice #8821; "
         "refund of $42.00 approved."
@@ -297,10 +298,9 @@ async def run_pipeline(*, live: bool) -> int:
         DB_PATH.unlink()
         print(f"[setup] Removed existing {DB_PATH.name}")
 
-    global _billing_failed_once
+    global _billing_failed_once, _fatal_tool_error
     _billing_failed_once = False
-    global _last_tool_error
-    _last_tool_error = None
+    _fatal_tool_error = None
 
     relay = Relay(DB_PATH)
     run_id = "openai-demo-T-2001"
@@ -330,14 +330,15 @@ async def run_pipeline(*, live: bool) -> int:
             "Resolve this support ticket using billing_lookup.\n"
             f"Context JSON: {json.dumps(ctx)}"
         )
-        global _last_tool_error
-        _last_tool_error = None
+        global _fatal_tool_error
+        # Clear only at the start of each handoff attempt — not after a
+        # successful in-run tool retry (live models often do that).
+        _fatal_tool_error = None
         result = await Runner.run(resolver, prompt)
-        # Promote fatal tool outages out of the SDK's soft-error path so the
-        # guarded handoff can recover from a VERIFIED checkpoint.
-        if _last_tool_error is not None:
-            err = _last_tool_error
-            _last_tool_error = None
+        # Promote the latched fatal tool outage so guarded_handoff can recover.
+        if _fatal_tool_error is not None:
+            err = _fatal_tool_error
+            _fatal_tool_error = None
             raise err
         out = dict(ctx)
         out["resolution"] = str(result.final_output)
