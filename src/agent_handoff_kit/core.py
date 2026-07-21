@@ -8,11 +8,12 @@ from __future__ import annotations
 import functools
 import inspect
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any, Callable, Optional, Union
+from typing import Any
 
-from handoff_kit.models import Checkpoint, HandoffStatus, checkpoint_state
-from handoff_kit.store import CheckpointStore
+from agent_handoff_kit.models import Checkpoint, HandoffStatus, checkpoint_state
+from agent_handoff_kit.store import CheckpointStore
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ class Relay:
 
     def __init__(
         self,
-        store: Optional[Union[CheckpointStore, str, Path]] = None,
+        store: CheckpointStore | str | Path | None = None,
     ) -> None:
         if store is None:
             self.store = CheckpointStore()
@@ -84,19 +85,15 @@ class Relay:
             )
             checkpoint.status = HandoffStatus.FAILED
             checkpoint.error = msg
-            self.store.update_status(
-                checkpoint.checkpoint_id, HandoffStatus.FAILED, error=msg
-            )
+            self.store.update_status(checkpoint.checkpoint_id, HandoffStatus.FAILED, error=msg)
             raise HandoffVerificationError(msg)
 
         checkpoint.status = HandoffStatus.VERIFIED
         checkpoint.error = None
-        self.store.update_status(
-            checkpoint.checkpoint_id, HandoffStatus.VERIFIED, error=None
-        )
+        self.store.update_status(checkpoint.checkpoint_id, HandoffStatus.VERIFIED, error=None)
         return checkpoint
 
-    def recover(self, run_id: str) -> Optional[Checkpoint]:
+    def recover(self, run_id: str) -> Checkpoint | None:
         """Last VERIFIED checkpoint for ``run_id``, or None."""
         return self.store.last_good_checkpoint(run_id)
 

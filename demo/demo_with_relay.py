@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Demo: same 3-agent support pipeline WITH handoff-kit.
+"""Demo: same 3-agent support pipeline WITH agent-handoff-kit.
 
 The resolver fails exactly once (deterministic flag), then succeeds on retry.
 After the crash we recover the last VERIFIED checkpoint and retry ONLY the
@@ -18,7 +18,7 @@ for _p in (_SRC, _ROOT):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from handoff_kit import Relay
+from agent_handoff_kit import Relay
 
 DB_PATH = _ROOT / "demo" / "demo_with_relay.db"
 
@@ -62,7 +62,7 @@ def closer_agent(context: dict) -> dict:
 
 def main() -> int:
     print("=" * 60)
-    print("DEMO: support pipeline WITH handoff-kit")
+    print("DEMO: support pipeline WITH agent-handoff-kit")
     print("=" * 60)
 
     # Repeatable: wipe any previous demo DB.
@@ -129,10 +129,7 @@ def main() -> int:
     history = relay.store.history(run_id)
     print(f"  Checkpoints recorded: {len(history)}")
     for cp in history:
-        print(
-            f"    - {cp.from_agent} → {cp.to_agent}: {cp.status.value} "
-            f"({cp.checkpoint_id[:8]}…)"
-        )
+        print(f"    - {cp.from_agent} → {cp.to_agent}: {cp.status.value} ({cp.checkpoint_id[:8]}…)")
     print("=" * 60)
     return 0
 

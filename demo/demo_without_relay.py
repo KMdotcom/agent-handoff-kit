@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Demo: 3-agent support pipeline WITHOUT handoff-kit.
+"""Demo: 3-agent support pipeline WITHOUT agent-handoff-kit.
 
 Shows what happens when the resolver crashes mid-handoff: triage's work is
 gone, and the only option is restarting from scratch.
@@ -42,7 +42,7 @@ def closer_agent(context: dict) -> dict:
 
 def main() -> int:
     print("=" * 60)
-    print("DEMO: support pipeline WITHOUT handoff-kit")
+    print("DEMO: support pipeline WITHOUT agent-handoff-kit")
     print("=" * 60)
 
     ticket = "I was double-charged on invoice #8821"

@@ -3,13 +3,13 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "handoff-kit"
+name = "agent-handoff-kit"
 version = "0.1.0"
 description = "Lightweight recovery layer for multi-agent handoffs"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-authors = [{ name = "handoff-kit contributors" }]
+authors = [{ name = "agent-handoff-kit contributors" }]
 keywords = [
   "agents",
   "multi-agent",
@@ -34,16 +34,30 @@ dependencies = []
 [project.optional-dependencies]
 openai = ["openai-agents>=0.2.0"]
 demo = ["openai-agents>=0.2.0"]
-dev = ["build", "twine"]
+dev = ["build", "twine", "ruff", "pytest"]
 
 [project.urls]
-Homepage = "https://github.com/KMdotcom/AIenv"
-Repository = "https://github.com/KMdotcom/AIenv"
-Issues = "https://github.com/KMdotcom/AIenv/issues"
+Homepage = "https://github.com/KMdotcom/agent-handoff-kit"
+Repository = "https://github.com/KMdotcom/agent-handoff-kit"
+Issues = "https://github.com/KMdotcom/agent-handoff-kit/issues"
 
 [tool.setuptools.package-dir]
 "" = "src"
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["handoff_kit*"]
+include = ["agent_handoff_kit*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.ruff.lint.per-file-ignores]
+"demo/*" = ["E402"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]

@@ -1,11 +1,11 @@
-"""OpenAI Agents SDK adapter for handoff-kit.
+"""OpenAI Agents SDK adapter for agent-handoff-kit.
 
-When the Agents SDK API shifts, change this file — not ``handoff_kit.core``.
+When the Agents SDK API shifts, change this file — not ``agent_handoff_kit.core``.
 
 Quick use::
 
-    from handoff_kit import Relay
-    from handoff_kit.openai_adapter import DurableRunner, relayed_handoff
+    from agent_handoff_kit import Relay
+    from agent_handoff_kit.openai_adapter import DurableRunner, relayed_handoff
 
     relay = Relay("support.db")
     to_resolver = relayed_handoff(
@@ -25,14 +25,16 @@ from __future__ import annotations
 import inspect
 import json
 import logging
-from typing import Any, Callable, Optional, Union
+from collections.abc import Callable
+from typing import Any
 
-from handoff_kit.core import Relay
-from handoff_kit.models import (
-    HandoffStatus,
+from agent_handoff_kit.core import Relay
+from agent_handoff_kit.models import (
     Checkpoint,
+    HandoffStatus,
     checkpoint_messages,
     checkpoint_state,
+    json_sanitize,
     make_handoff_envelope,
 )
 
@@ -46,31 +48,6 @@ class RunAlreadyCompleted(RuntimeError):
     """Raised when DurableRunner is asked to run a completed run_id again."""
 
 
-def _json_sanitize(value: Any) -> Any:
-    """Best-effort conversion to JSON-serializable structures."""
-    if value is None or isinstance(value, (str, int, float, bool)):
-        return value
-    if isinstance(value, dict):
-        return {str(k): _json_sanitize(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_json_sanitize(v) for v in value]
-    if hasattr(value, "model_dump"):
-        try:
-            return _json_sanitize(value.model_dump())
-        except Exception:
-            pass
-    if hasattr(value, "dict") and callable(value.dict):
-        try:
-            return _json_sanitize(value.dict())
-        except Exception:
-            pass
-    try:
-        json.dumps(value)
-        return value
-    except TypeError:
-        return str(value)
-
-
 def context_from_run_context(ctx: Any, input_data: Any = None) -> dict[str, Any]:
     """Extract the app **state** dict from ``RunContextWrapper`` (+ handoff input).
 
@@ -79,7 +56,6 @@ def context_from_run_context(ctx: Any, input_data: Any = None) -> dict[str, Any]
     out: dict[str, Any] = {}
     inner = getattr(ctx, "context", None)
     if isinstance(inner, dict):
-        # If caller already stored an envelope in context, use its state.
         if "state" in inner and "meta" in inner and isinstance(inner.get("state"), dict):
             out.update(inner["state"])
         else:
@@ -103,7 +79,7 @@ def messages_from_run_context(ctx: Any) -> list[Any]:
     turn_input = getattr(ctx, "turn_input", None) or []
     if not isinstance(turn_input, list):
         return []
-    return [_json_sanitize(item) for item in turn_input]
+    return [json_sanitize(item) for item in turn_input]
 
 
 def build_envelope_from_run_context(
@@ -112,7 +88,7 @@ def build_envelope_from_run_context(
     from_agent: str,
     to_agent: str,
     input_data: Any = None,
-    extract_context: Optional[ExtractContext] = None,
+    extract_context: ExtractContext | None = None,
 ) -> dict[str, Any]:
     """Build ``{state, messages, meta}`` for a handoff checkpoint."""
     extract = extract_context or context_from_run_context
@@ -139,8 +115,8 @@ def wrap_on_handoff(
     from_agent: str,
     to_agent: str,
     required_keys: list[str],
-    on_handoff: Optional[OnHandoff] = None,
-    extract_context: Optional[ExtractContext] = None,
+    on_handoff: OnHandoff | None = None,
+    extract_context: ExtractContext | None = None,
 ) -> Callable[..., Any]:
     """Wrap an ``on_handoff`` callback with envelope checkpoint + pre-flight verify."""
 
@@ -186,8 +162,8 @@ def relayed_handoff(
     agent: Any,
     required_keys: list[str],
     *,
-    on_handoff: Optional[OnHandoff] = None,
-    extract_context: Optional[ExtractContext] = None,
+    on_handoff: OnHandoff | None = None,
+    extract_context: ExtractContext | None = None,
     input_type: Any = None,
     **handoff_kwargs: Any,
 ) -> Any:
@@ -197,7 +173,7 @@ def relayed_handoff(
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "relayed_handoff requires openai-agents. "
-            "Install with: pip install 'handoff-kit[openai]'"
+            "Install with: pip install 'agent-handoff-kit[openai]'"
         ) from exc
 
     wrapped = wrap_on_handoff(
@@ -239,7 +215,7 @@ def wrap_handoff(
     to_agent: str,
     on_handoff: OnHandoff,
     required_keys: list[str],
-    extract_context: Optional[ExtractContext] = None,
+    extract_context: ExtractContext | None = None,
 ) -> Callable[..., Any]:
     """Backward-compatible helper: wrap a user ``on_handoff`` for ``handoff()``."""
     return wrap_on_handoff(
@@ -258,7 +234,7 @@ def resume_run(
     run_id: str,
     *,
     mark_recovered: bool = False,
-) -> Optional[dict[str, Any]]:
+) -> dict[str, Any] | None:
     """Return the last VERIFIED checkpoint payload (envelope or legacy flat dict)."""
     cp = relay.recover(run_id)
     if cp is None:
@@ -277,7 +253,6 @@ def _default_resume_prompt(checkpoint: Checkpoint) -> str:
         f"Context JSON: {json.dumps(state)}",
     ]
     if messages:
-        # Keep prompt bounded — full list is also in the checkpoint store.
         summary = json.dumps(messages[:20])
         parts.append(f"Recent messages (truncated): {summary}")
     return "\n".join(parts)
@@ -288,7 +263,7 @@ async def resume_with_agent(
     run_id: str,
     agent: Any,
     *,
-    prompt: Optional[Union[str, Callable[[dict[str, Any]], str]]] = None,
+    prompt: str | Callable[[dict[str, Any]], str] | None = None,
     mark_recovered: bool = True,
     **runner_kwargs: Any,
 ) -> Any:
@@ -298,20 +273,17 @@ async def resume_with_agent(
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
             "resume_with_agent requires openai-agents. "
-            "Install with: pip install 'handoff-kit[openai]'"
+            "Install with: pip install 'agent-handoff-kit[openai]'"
         ) from exc
 
     cp = relay.recover(run_id)
     if cp is None:
-        raise RuntimeError(
-            f"No VERIFIED checkpoint for run_id={run_id!r}; cannot resume."
-        )
+        raise RuntimeError(f"No VERIFIED checkpoint for run_id={run_id!r}; cannot resume.")
     state = checkpoint_state(cp)
 
     if prompt is None:
         user_input = _default_resume_prompt(cp)
     elif callable(prompt):
-        # Callables receive the app state dict (not the raw envelope).
         user_input = prompt(state)
     else:
         user_input = prompt
@@ -331,7 +303,7 @@ async def resume_with_agent(
 def _resolve_agent(
     agents: dict[str, Any],
     to_agent: str,
-) -> Optional[Any]:
+) -> Any | None:
     if to_agent in agents:
         return agents[to_agent]
     lowered = {k.lower(): v for k, v in agents.items()}
@@ -356,8 +328,8 @@ class DurableRunner:
         starting_agent: Any,
         user_input: Any,
         *,
-        context: Optional[dict[str, Any]] = None,
-        agents: Optional[dict[str, Any]] = None,
+        context: dict[str, Any] | None = None,
+        agents: dict[str, Any] | None = None,
         max_resume_attempts: int = 1,
         **runner_kwargs: Any,
     ) -> Any:
@@ -366,7 +338,7 @@ class DurableRunner:
         except ImportError as exc:  # pragma: no cover
             raise ImportError(
                 "DurableRunner requires openai-agents. "
-                "Install with: pip install 'handoff-kit[openai]'"
+                "Install with: pip install 'agent-handoff-kit[openai]'"
             ) from exc
 
         agents = agents or {}

@@ -1,14 +1,14 @@
-"""handoff-kit — recover multi-agent handoffs without a heavy workflow engine."""
+"""agent-handoff-kit — recover multi-agent handoffs without a heavy workflow engine."""
 
-from handoff_kit.core import HandoffVerificationError, Relay
-from handoff_kit.models import (
+from agent_handoff_kit.core import HandoffVerificationError, Relay
+from agent_handoff_kit.models import (
     Checkpoint,
     HandoffStatus,
     checkpoint_messages,
     checkpoint_state,
     make_handoff_envelope,
 )
-from handoff_kit.store import CheckpointStore
+from agent_handoff_kit.store import CheckpointStore
 
 __version__ = "0.1.0"
 

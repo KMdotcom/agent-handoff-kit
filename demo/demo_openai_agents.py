@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Real OpenAI Agents SDK demo with handoff-kit recovery.
+"""Real OpenAI Agents SDK demo with agent-handoff-kit recovery.
 
 Pipeline: triage agent → (guarded handoff) → resolver agent (flaky billing tool)
 → closer agent.
@@ -68,13 +68,11 @@ try:
     )
 except ImportError:
     print(
-        "Missing dependency: openai-agents\n"
-        "  pip install 'openai-agents'\n"
-        "Then re-run this demo."
+        "Missing dependency: openai-agents\n  pip install 'openai-agents'\nThen re-run this demo."
     )
     raise SystemExit(2) from None
 
-from handoff_kit import Relay
+from agent_handoff_kit import Relay
 
 DB_PATH = _ROOT / "demo" / "demo_openai_agents.db"
 
@@ -84,7 +82,7 @@ _billing_failed_once = False
 # function_call_output strings — Runner.run does NOT raise. Live models may
 # also retry the tool inside the *same* run after a soft error. We sticky-latch
 # the first fatal tool outage for the current handoff attempt and re-raise
-# after Runner.run returns, so handoff-kit recovery still runs (a later
+# after Runner.run returns, so agent-handoff-kit recovery still runs (a later
 # in-run retry must not clear the latch).
 _fatal_tool_error: Exception | None = None
 
@@ -99,8 +97,7 @@ def billing_lookup(ticket_id: str) -> str:
         _fatal_tool_error = TimeoutError("billing API timed out after 30s")
         raise _fatal_tool_error
     return (
-        f"Ticket {ticket_id}: double charge confirmed on invoice #8821; "
-        "refund of $42.00 approved."
+        f"Ticket {ticket_id}: double charge confirmed on invoice #8821; refund of $42.00 approved."
     )
 
 
@@ -182,8 +179,7 @@ class ScriptedSupportModel(Model):
             return ModelResponse(
                 output=[
                     _text_message(
-                        "Refund queued for $42.00 after billing_lookup confirmed "
-                        "the double charge."
+                        "Refund queued for $42.00 after billing_lookup confirmed the double charge."
                     )
                 ],
                 usage=Usage(),
@@ -293,7 +289,7 @@ def build_agents(*, live: bool) -> tuple[Agent, Agent, Agent]:
 async def run_pipeline(*, live: bool) -> int:
     print("=" * 60)
     mode = "LIVE (OpenAI API)" if live else "OFFLINE (scripted Model)"
-    print(f"DEMO: OpenAI Agents SDK + handoff-kit [{mode}]")
+    print(f"DEMO: OpenAI Agents SDK + agent-handoff-kit [{mode}]")
     print("=" * 60)
 
     if DB_PATH.exists():
@@ -309,9 +305,7 @@ async def run_pipeline(*, live: bool) -> int:
     triage, resolver, closer = build_agents(live=live)
 
     print("\n[triage] Running triage agent…")
-    triage_result = await Runner.run(
-        triage, "I was double-charged on invoice #8821. Please help."
-    )
+    triage_result = await Runner.run(triage, "I was double-charged on invoice #8821. Please help.")
     triage_text = str(triage_result.final_output)
     context = _parse_triage_output(triage_text)
     # Ensure keys the resolver handoff requires.
@@ -329,8 +323,7 @@ async def run_pipeline(*, live: bool) -> int:
     async def handoff_to_resolver(ctx: dict) -> dict:
         print("\n[resolver] Running resolver agent (may hit flaky billing tool)…")
         prompt = (
-            "Resolve this support ticket using billing_lookup.\n"
-            f"Context JSON: {json.dumps(ctx)}"
+            f"Resolve this support ticket using billing_lookup.\nContext JSON: {json.dumps(ctx)}"
         )
         global _fatal_tool_error
         # Clear only at the start of each handoff attempt — not after a
@@ -354,10 +347,7 @@ async def run_pipeline(*, live: bool) -> int:
     )
     async def handoff_to_closer(ctx: dict) -> dict:
         print("\n[closer] Running closer agent…")
-        prompt = (
-            "Close this ticket.\n"
-            f"Context JSON: {json.dumps(ctx)}"
-        )
+        prompt = f"Close this ticket.\nContext JSON: {json.dumps(ctx)}"
         result = await Runner.run(closer, prompt)
         out = dict(ctx)
         out["status"] = "closed"
@@ -391,13 +381,10 @@ async def run_pipeline(*, live: bool) -> int:
     context = await handoff_to_closer(context)
 
     print("\n" + "=" * 60)
-    print("SUCCESS: real Agents SDK pipeline completed with handoff-kit.")
+    print("SUCCESS: real Agents SDK pipeline completed with agent-handoff-kit.")
     print(f"  Final context: {context}")
     for cp in relay.store.history(run_id):
-        print(
-            f"  - {cp.from_agent} → {cp.to_agent}: {cp.status.value} "
-            f"({cp.checkpoint_id[:8]}…)"
-        )
+        print(f"  - {cp.from_agent} → {cp.to_agent}: {cp.status.value} ({cp.checkpoint_id[:8]}…)")
     print("=" * 60)
     return 0
 
