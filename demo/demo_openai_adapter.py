@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
 """DurableRunner demo: full-context handoff, auto-resume, idempotent refund tool.
 
-Offline by default (scripted Model). Live::
+Offline by default (scripted Model). Live smoke::
 
     python3 demo/demo_openai_adapter.py --live
+
+End-to-end DurableRunner crash + auto-resume on a real API (proof before announce)::
+
+    python3 demo/demo_openai_adapter.py --live --force-crash
 """
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ _load_dotenv(_ROOT / ".env")
 try:
     from agents import Agent, ModelResponse, Usage
     from agents.models.interface import Model
+    from agents.models.openai_provider import OpenAIProvider
     from openai.types.responses import (
         ResponseFunctionToolCall,
         ResponseOutputMessage,
@@ -61,7 +66,7 @@ except ImportError as exc:
     )
     raise SystemExit(2) from None
 
-from agent_handoff_kit import Relay
+from agent_handoff_kit import HandoffStatus, Relay
 from agent_handoff_kit.idempotency import make_idempotent_function_tool
 from agent_handoff_kit.models import checkpoint_messages, checkpoint_state
 from agent_handoff_kit.openai_adapter import (
@@ -71,6 +76,7 @@ from agent_handoff_kit.openai_adapter import (
 )
 
 DB_PATH = _ROOT / "demo" / "demo_openai_adapter.db"
+LIVE_MODEL = "gpt-4.1-mini"
 _resolver_crashes_left = 1
 _refund_calls = 0
 
@@ -83,6 +89,23 @@ def _text_message(text: str) -> ResponseOutputMessage:
         status="completed",
         content=[ResponseOutputText(type="output_text", text=text, annotations=[])],
     )
+
+
+class CrashOnceModel(Model):
+    """Fail the first ``get_response`` so ``Runner.run`` raises (DurableRunner path)."""
+
+    def __init__(self, inner: Model) -> None:
+        self._inner = inner
+        self._crash_pending = True
+
+    async def get_response(self, *args: Any, **kwargs: Any) -> ModelResponse:
+        if self._crash_pending:
+            self._crash_pending = False
+            raise ConnectionError("simulated worker crash mid-resolver")
+        return await self._inner.get_response(*args, **kwargs)
+
+    def stream_response(self, *args: Any, **kwargs: Any) -> AsyncIterator[Any]:
+        return self._inner.stream_response(*args, **kwargs)
 
 
 class ScriptedTriageModel(Model):
@@ -126,7 +149,6 @@ class ScriptedResolverModel(Model):
             _resolver_crashes_left -= 1
             raise ConnectionError("simulated worker crash mid-resolver")
 
-        # After resume: invoke refund tool once, then (on next turn) finalize.
         has_tool_result = False
         if not isinstance(input, str):
             for item in input:
@@ -163,9 +185,22 @@ class ScriptedResolverModel(Model):
         return _gen()
 
 
-def build_agents(*, live: bool, relay: Relay, run_id: str) -> tuple[Agent, Agent, Any]:
-    global _refund_calls
+def _resolver_model(*, live: bool, force_crash: bool) -> str | Model:
+    if not live:
+        return ScriptedResolverModel()
+    if force_crash:
+        inner = OpenAIProvider().get_model(LIVE_MODEL)
+        return CrashOnceModel(inner)
+    return LIVE_MODEL
 
+
+def build_agents(
+    *,
+    live: bool,
+    force_crash: bool,
+    relay: Relay,
+    run_id: str,
+) -> tuple[Agent, Agent, Any]:
     def issue_refund(ticket_id: str, amount: float = 42.0) -> str:
         global _refund_calls
         _refund_calls += 1
@@ -179,16 +214,19 @@ def build_agents(*, live: bool, relay: Relay, run_id: str) -> tuple[Agent, Agent
         key_fn=lambda ticket_id, amount=42.0: f"refund:{ticket_id}",
     )
 
+    resolver = Agent(
+        name="Resolver",
+        instructions=(
+            "Resolve billing tickets. Call issue_refund with the ticket_id, "
+            "then confirm in one short paragraph."
+            if live
+            else "Resolve via issue_refund."
+        ),
+        tools=[refund_tool],
+        model=_resolver_model(live=live, force_crash=force_crash),
+    )
+
     if live:
-        resolver = Agent(
-            name="Resolver",
-            instructions=(
-                "Resolve billing tickets. Call issue_refund with the ticket_id, "
-                "then confirm in one short paragraph."
-            ),
-            tools=[refund_tool],
-            model="gpt-4.1-mini",
-        )
         triage = Agent(
             name="Triage",
             instructions=(
@@ -205,16 +243,10 @@ def build_agents(*, live: bool, relay: Relay, run_id: str) -> tuple[Agent, Agent
                     required_keys=["ticket_id", "category", "summary"],
                 )
             ],
-            model="gpt-4.1-mini",
+            model=LIVE_MODEL,
         )
         return triage, resolver, refund_tool
 
-    resolver = Agent(
-        name="Resolver",
-        instructions="Resolve via issue_refund.",
-        tools=[refund_tool],
-        model=ScriptedResolverModel(),
-    )
     triage = Agent(
         name="Triage",
         instructions="Hand off to resolver.",
@@ -233,9 +265,26 @@ def build_agents(*, live: bool, relay: Relay, run_id: str) -> tuple[Agent, Agent
     return triage, resolver, refund_tool
 
 
-async def run_pipeline(*, live: bool) -> int:
+def _expect_crash_proof(*, live: bool, force_crash: bool) -> bool:
+    return not live or force_crash
+
+
+def _handoff_was_recovered(history: list[Any]) -> bool:
+    for cp in history:
+        if cp.from_agent == "triage" and cp.to_agent == "resolver":
+            if cp.status == HandoffStatus.RECOVERED:
+                return True
+    return False
+
+
+async def run_pipeline(*, live: bool, force_crash: bool) -> int:
     print("=" * 60)
-    mode = "LIVE (OpenAI API)" if live else "OFFLINE (scripted Model)"
+    if live and force_crash:
+        mode = "LIVE + FORCE_CRASH (DurableRunner auto-resume proof)"
+    elif live:
+        mode = "LIVE (OpenAI API)"
+    else:
+        mode = "OFFLINE (scripted Model)"
     print(f"DEMO: DurableRunner + full context + idempotency [{mode}]")
     print("=" * 60)
 
@@ -244,12 +293,16 @@ async def run_pipeline(*, live: bool) -> int:
         print(f"[setup] Removed existing {DB_PATH.name}")
 
     global _resolver_crashes_left, _refund_calls
-    _resolver_crashes_left = 0 if live else 1
+    _resolver_crashes_left = 1 if not live else 0
     _refund_calls = 0
+
+    crash_proof = _expect_crash_proof(live=live, force_crash=force_crash)
 
     relay = Relay(DB_PATH)
     run_id = "adapter-demo-T-2001"
-    triage, resolver, _refund_tool = build_agents(live=live, relay=relay, run_id=run_id)
+    triage, resolver, _refund_tool = build_agents(
+        live=live, force_crash=force_crash, relay=relay, run_id=run_id
+    )
     agents = {"triage": triage, "resolver": resolver}
 
     context: dict[str, Any] = {
@@ -282,12 +335,18 @@ async def run_pipeline(*, live: bool) -> int:
             f"messages={len(msgs)}"
         )
 
+    if crash_proof and not _handoff_was_recovered(history):
+        print(
+            "ERROR: expected a triage → resolver checkpoint marked RECOVERED "
+            "after auto-resume (crash-proof mode)."
+        )
+        return 1
+
     print(f"\n[idempotency] issue_refund raw executions: {_refund_calls}")
-    if not live and _refund_calls != 1:
+    if crash_proof and _refund_calls != 1:
         print("ERROR: expected exactly one refund execution after auto-resume.")
         return 1
 
-    # Re-run same run_id should refuse (completed marker).
     try:
         await DurableRunner.run(
             relay,
@@ -303,7 +362,10 @@ async def run_pipeline(*, live: bool) -> int:
         print(f"[guard] Second run blocked: {exc}")
 
     print("\n" + "=" * 60)
-    print("SUCCESS: DurableRunner auto-recovered; run marked completed.")
+    if crash_proof:
+        print("SUCCESS: DurableRunner auto-recovered; run marked completed.")
+    else:
+        print("SUCCESS: live smoke completed; run marked completed.")
     print("=" * 60)
     return 0
 
@@ -315,12 +377,23 @@ def main() -> int:
         action="store_true",
         help="Use real OpenAI models (requires OPENAI_API_KEY)",
     )
+    parser.add_argument(
+        "--force-crash",
+        action="store_true",
+        help=(
+            "With --live: fail resolver once at the model layer so DurableRunner "
+            "auto-resumes (end-to-end recovery proof)"
+        ),
+    )
     args = parser.parse_args()
+    if args.force_crash and not args.live:
+        print("ERROR: --force-crash requires --live (offline already crashes by default).")
+        return 2
     if args.live and not os.environ.get("OPENAI_API_KEY"):
         print("ERROR: --live requires OPENAI_API_KEY in the environment or .env")
         return 2
     os.environ.setdefault("OPENAI_AGENTS_DISABLE_TRACING", "1")
-    return asyncio.run(run_pipeline(live=args.live))
+    return asyncio.run(run_pipeline(live=args.live, force_crash=args.force_crash))
 
 
 if __name__ == "__main__":
