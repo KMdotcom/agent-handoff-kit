@@ -145,13 +145,28 @@ see `make_idempotent_function_tool`.
 timeout; non-JSON payloads are sanitized (`model_dump` / `.dict()` / `str`); not a
 full workflow engine.
 
+**Proving crash recovery:** `DurableRunner` auto-resumes only when an exception
+escapes `Runner.run` (typically a model/worker failure after a VERIFIED handoff).
+Tool errors are often returned to the model as soft outputs and may not trigger
+auto-resume — see `demo/demo_openai_agents.py` for manual `guarded_handoff` recovery
+with a flaky tool.
+
+| Demo | What it proves |
+| --- | --- |
+| `demo/demo_with_relay.py` | Core `Relay` + recover (no OpenAI) |
+| `demo/demo_openai_adapter.py` | Offline: scripted model crash + DurableRunner + idempotency |
+| `demo/demo_openai_adapter.py --live` | Live smoke (happy path) |
+| `demo/demo_openai_adapter.py --live --force-crash` | **Live proof:** real API + model crash + DurableRunner auto-resume |
+| `demo/demo_openai_agents.py --live` | Live `guarded_handoff` + flaky billing tool |
+
 ## Demos
 
 ```bash
 python -m pip install -e ".[openai]"
 python demo/demo_with_relay.py
-python demo/demo_openai_adapter.py          # offline DurableRunner
-python demo/demo_openai_adapter.py --live   # needs OPENAI_API_KEY / .env
+python demo/demo_openai_adapter.py
+python demo/demo_openai_adapter.py --live
+python demo/demo_openai_adapter.py --live --force-crash   # run before announcing
 ```
 
 ## Development
