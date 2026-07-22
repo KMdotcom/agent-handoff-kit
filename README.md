@@ -1,19 +1,65 @@
 # agent-handoff-kit
 
-**Alpha (0.1.0).** PyPI / import: `agent-handoff-kit` / `agent_handoff_kit`
-(PyPI rejected the shorter `handoff-kit` as too similar to an existing project).
-GitHub repo: [KMdotcom/agent-handoff-kit](https://github.com/KMdotcom/agent-handoff-kit).
+[![PyPI version](https://img.shields.io/pypi/v/agent-handoff-kit)](https://pypi.org/project/agent-handoff-kit/)
+[![CI](https://github.com/KMdotcom/agent-handoff-kit/actions/workflows/ci.yml/badge.svg)](https://github.com/KMdotcom/agent-handoff-kit/actions/workflows/ci.yml)
 
-OpenAI Agents first. CrewAI / PydanticAI adapters are not in this release — do not
-wait on them. APIs may still move; pin the version in production experiments.
+When the receiving agent crashes after a handoff, you shouldn’t rerun triage or lose
+context—**agent-handoff-kit** saves a verified snapshot at the boundary and lets you
+resume from there.
 
-Checkpoint multi-agent handoffs. Verify the receiver got what it needs. Resume after
-a crash — without standing up Temporal.
+```bash
+pip install agent-handoff-kit
+pip install "agent-handoff-kit[openai]"   # OpenAI Agents SDK adapter
+```
 
-LangGraph already has strong native checkpointing; this is **not** that. agent-handoff-kit
-is a thin recovery layer at the handoff boundary for OpenAI Agents (and plain Python
-callables). Prefer LangGraph or Temporal when you need a full workflow engine,
-durable timers, or graph-native state.
+## Without vs with
+
+Same three-agent billing pipeline; resolver times out once.
+
+```bash
+python demo/demo_without_relay.py
+python demo/demo_with_relay.py
+```
+
+### Without (`demo_without_relay.py`)
+
+```text
+[triage] Done. Context: {'ticket_id': 'T-1001', …}
+
+CRASH: resolver failed (expected once).
+RESULT: Triage's work is completely lost.
+  There is no checkpoint to recover from.
+  The only option is restarting the entire pipeline from scratch.
+```
+
+### With (`demo_with_relay.py`)
+
+```text
+[triage] Done. Context: {'ticket_id': 'T-1001', …}
+
+→ Handing off triage → resolver (checkpointed)…
+
+CRASH: resolver failed (expected once).
+
+RECOVERY: last VERIFIED checkpoint found.
+  Retrying ONLY the resolver step (not the whole pipeline)…
+
+SUCCESS: pipeline completed. Nothing was lost.
+```
+
+OpenAI + live crash proof: `python demo/demo_openai_adapter.py --live --force-crash`
+(see [Demos](#demos) below).
+
+---
+
+**Alpha (0.1.0).** PyPI: `agent-handoff-kit` · import: `agent_handoff_kit` ·
+[GitHub](https://github.com/KMdotcom/agent-handoff-kit). OpenAI Agents first; pin the
+version in production experiments.
+
+LangGraph already has strong native checkpointing; this is **not** that.
+agent-handoff-kit is a thin recovery layer at the handoff boundary for OpenAI Agents
+(and plain Python callables). Prefer LangGraph or Temporal when you need a full workflow
+engine, durable timers, or graph-native state.
 
 ## When to use / not
 
@@ -27,16 +73,11 @@ policies, or manage tool sandboxes.
 
 ## Install
 
-```bash
-python -m pip install agent-handoff-kit
-python -m pip install "agent-handoff-kit[openai]"   # OpenAI Agents SDK adapter
-```
-
 Python **3.10–3.13**. Use the **same interpreter** for install and run
 (`python -m pip …` then that same `python`). Mixing Homebrew / system Pythons is a
 common footgun (`ModuleNotFoundError: agent_handoff_kit`).
 
-Dev / editable:
+Editable install for development:
 
 ```bash
 python -m venv .venv && source .venv/bin/activate
@@ -153,6 +194,7 @@ with a flaky tool.
 
 | Demo | What it proves |
 | --- | --- |
+| `demo/demo_without_relay.py` | Unprotected pipeline (contrast with hero above) |
 | `demo/demo_with_relay.py` | Core `Relay` + recover (no OpenAI) |
 | `demo/demo_openai_adapter.py` | Offline: scripted model crash + DurableRunner + idempotency |
 | `demo/demo_openai_adapter.py --live` | Live smoke (happy path) |
@@ -163,6 +205,7 @@ with a flaky tool.
 
 ```bash
 python -m pip install -e ".[openai]"
+python demo/demo_without_relay.py
 python demo/demo_with_relay.py
 python demo/demo_openai_adapter.py
 python demo/demo_openai_adapter.py --live
